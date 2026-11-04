@@ -43,6 +43,8 @@ Cuando aparece un `.upd`, el cargador hace esto:
 
 ## Instalación y uso
 
+> Para la guía completa paso a paso (compilación, configuración de IIS, permisos, comprobaciones y solución de problemas) consulta el **[manual de compilación y despliegue](doc/COMPILACION_Y_DESPLIEGUE.md)** ([English](doc/BUILD_AND_DEPLOY.md)). Lo que sigue es un resumen.
+
 1. Compila el cargador (ver más abajo) o usa [bin/FilterLoader.dll](bin/FilterLoader.dll).
 2. Cópialo a la carpeta del sitio con **el mismo nombre que tu filtro**, por ejemplo `MiFiltro.dll`.
 3. Registra `MiFiltro.dll` en IIS igual que registrarías la DLL real:
@@ -63,6 +65,7 @@ Cuando aparece un `.upd`, el cargador hace esto:
 | [src/uLog.pas](src/uLog.pas) | Log de depuración (solo activo en la configuración Debug). |
 | `src/FilterLoader.dproj`, `.bdsproj`, `.res`, `.ico` | Ficheros de proyecto de Delphi, recursos e icono. |
 | [bin/FilterLoader.dll](bin/FilterLoader.dll) | DLL ya compilada (32 bits). |
+| [doc/COMPILACION_Y_DESPLIEGUE.md](doc/COMPILACION_Y_DESPLIEGUE.md) | Manual de compilación y despliegue en IIS ([versión en inglés](doc/BUILD_AND_DEPLOY.md)). |
 | [Tareas.md](Tareas.md) | Tareas pendientes y realizadas. |
 
 ## Cómo funciona por dentro
@@ -78,6 +81,8 @@ Cuando aparece un `.upd`, el cargador hace esto:
 - **Tolerancia a fallos:** si el filtro hijo lanza una excepción, el cargador la captura y deja pasar la petición.
 
 ## Compilación
+
+Instrucciones completas, con la línea de comandos y el despliegue en IIS: [manual de compilación y despliegue](doc/COMPILACION_Y_DESPLIEGUE.md) ([English](doc/BUILD_AND_DEPLOY.md)).
 
 - Proyecto de **Delphi**: abre [src/FilterLoader.dproj](src/FilterLoader.dproj) en el IDE y compila.
 - Usa la unidad `ISAPI2`, que trae Delphi.

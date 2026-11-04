@@ -43,6 +43,8 @@ When a `.upd` appears, the loader does the following:
 
 ## Installation and usage
 
+> For the complete step-by-step guide (building, IIS configuration, permissions, checks and troubleshooting) see the **[build and deployment manual](doc/BUILD_AND_DEPLOY.md)** ([Español](doc/COMPILACION_Y_DESPLIEGUE.md)). What follows is a summary.
+
 1. Build the loader (see below) or use [bin/FilterLoader.dll](bin/FilterLoader.dll).
 2. Copy it to the site folder with **the same name as your filter**, for example `MyFilter.dll`.
 3. Register `MyFilter.dll` in IIS the same way you would register the real one:
@@ -63,6 +65,7 @@ When a `.upd` appears, the loader does the following:
 | [src/uLog.pas](src/uLog.pas) | Debug log (only active in the Debug configuration). |
 | `src/FilterLoader.dproj`, `.bdsproj`, `.res`, `.ico` | Delphi project files, resources and icon. |
 | [bin/FilterLoader.dll](bin/FilterLoader.dll) | Prebuilt DLL (32-bit). |
+| [doc/BUILD_AND_DEPLOY.md](doc/BUILD_AND_DEPLOY.md) | Build and IIS deployment manual ([Spanish version](doc/COMPILACION_Y_DESPLIEGUE.md)). |
 | [Tareas.md](Tareas.md) | Pending and completed tasks (in Spanish). |
 
 ## How it works internally
@@ -78,6 +81,8 @@ When a `.upd` appears, the loader does the following:
 - **Fault tolerance:** if the child filter raises an exception, the loader catches it and lets the request through.
 
 ## Building
+
+Full instructions, including the command line and the IIS deployment: [build and deployment manual](doc/BUILD_AND_DEPLOY.md) ([Español](doc/COMPILACION_Y_DESPLIEGUE.md)).
 
 - **Delphi** project: open [src/FilterLoader.dproj](src/FilterLoader.dproj) in the IDE and build.
 - It uses the `ISAPI2` unit that ships with Delphi.

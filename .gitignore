@@ -38,9 +38,6 @@ $RECYCLE.BIN/
 *.apk
 *.ipa
 
-# El cargador compilado se versiona en bin\
-!bin/*.dll
-
 # Ficheros locales del IDE y copias de seguridad
 *.~*
 *.local
@@ -75,4 +72,13 @@ iOSSimulator/
 Linux64/
 Debug/
 Release/
+
+# Las compilaciones de bin\ SI se versionan (deben ir despues de las reglas
+# anteriores, que ignoran Debug/, Release/, *.dll, *.map y *.drc)
+!bin/Debug/
+!bin/Release/
+!bin/**/*.dll
+!bin/**/*.map
+!bin/**/*.drc
+
 Tareas.md
