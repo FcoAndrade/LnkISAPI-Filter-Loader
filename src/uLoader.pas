@@ -54,7 +54,8 @@ function CoCreateFilterLoader: IFilterLoader;
 implementation
 
 uses
-  Classes;
+  Classes,
+  uLog;
 
 function GetLongPathNameW(lpszShortPath: PWideChar; lpszLongPath: PWideChar; cchBuffer: DWORD): DWORD; stdcall; external kernel32 name 'GetLongPathNameW';
 
@@ -117,7 +118,11 @@ begin
     end;
     Result := True;
   except
-    Result := False;
+    on E: Exception do
+    begin
+      Log('CanAccessDLL: no se puede abrir en exclusiva "%s": %s', [FUpdateDLLName, E.Message]);
+      Result := False;
+    end;
   end;
 end;
 
@@ -132,10 +137,13 @@ begin
   FBackupDLLName := ChangeFileExt(ThisModule, '.bak');
   FRunDLLName := ChangeFileExt(ThisModule, '.run');
   FUpdateDLLName := ChangeFileExt(ThisModule, '.upd');
+  Log('TFilterLoader.Create: modulo="%s" upd="%s" run="%s" bak="%s" espera=%d ms',
+    [ThisModule, FUpdateDLLName, FRunDLLName, FBackupDLLName, WAIT_BEFORE_CHECK]);
 end;
 
 destructor TFilterLoader.Destroy;
 begin
+  Log('TFilterLoader.Destroy (filtro hijo cargado=%s)', [BoolToStr(FDLL <> 0, True)]);
   // unload DLL
   if FDLL <> 0 then
     FreeLibrary(FDLL);
@@ -177,7 +185,10 @@ begin
           FDLLSync.EndRead;
         end;
         if NeedLoad then
+        begin
+          Log('DoUpdateIfNeeded: hay que recargar (hijo cargado=%s)', [BoolToStr(FDLL <> 0, True)]);
           ReloadDLL;
+        end;
       end;
     finally
       FCheckSync.EndWrite;
@@ -194,9 +205,15 @@ begin
     // ATTN: if the filter changes this implementation, the IIS has to be
     //       restarted, as this method will be called once only!
     if Assigned(FCallbackVersion) then
-      Result := FCallbackVersion(pVer)
+    begin
+      Result := FCallbackVersion(pVer);
+      Log('GetFilterVersion del hijo -> %s (flags=$%x)', [BoolToStr(Result, True), pVer.dwFlags]);
+    end
     else
+    begin
       Result := False;
+      Log('GetFilterVersion: no hay filtro hijo cargado, se devuelve False');
+    end;
   finally
     FDLLSync.EndRead;
   end;
@@ -210,9 +227,16 @@ begin
   try
     // Check Notification bit to make sure the DLL should be called
     if Assigned(FCallbackProc) and ((NotificationType and FFilterFlags) <> 0) then
-      Result := FCallbackProc(pfc, NotificationType, pvNotification)
+    begin
+      Result := FCallbackProc(pfc, NotificationType, pvNotification);
+      Log('HttpFilterProc: notificacion=$%x reenviada al hijo -> resultado=%d', [NotificationType, Result]);
+    end
     else
+    begin
       Result := SF_STATUS_REQ_NEXT_NOTIFICATION;
+      Log('HttpFilterProc: notificacion=$%x NO reenviada (hijo cargado=%s, flags=$%x)',
+        [NotificationType, BoolToStr(Assigned(FCallbackProc), True), FFilterFlags]);
+    end;
   finally
     FDLLSync.EndRead;
   end;
@@ -227,15 +251,20 @@ begin
   try
     // First Determine if we really should
     ShouldReload := ((FDLL=0) or FileExists(FUpdateDLLName)) and CanAccessDLL;
+    Log('ReloadDLL: ShouldReload=%s (hijo cargado=%s, .upd existe=%s)',
+      [BoolToStr(ShouldReload, True), BoolToStr(FDLL <> 0, True),
+       BoolToStr(FileExists(FUpdateDLLName), True)]);
     if ShouldReload then
     begin
       // First unload the DLL
       if FDLL <> 0 then
       begin
+        Log('ReloadDLL: descargando el hijo actual');
         if Assigned(FCallbackTerminate) then
         try
           FCallbackTerminate(0);
         except
+          LogException('ReloadDLL: TerminateFilter del hijo');
         end;
         FreeLibrary(FDLL);
         FDLL := 0;
@@ -247,9 +276,14 @@ begin
       // check for update file, if exists then rename things;
       if FileExists(FUpdateDLLName) then
       begin
-        SysUtils.DeleteFile(FBackupDLLName);
-        RenameFile(FRunDLLName, FBackupDLLName);
-        RenameFile(FUpdateDLLName, FRunDLLName);
+        Log('ReloadDLL: aplicando actualizacion (.upd -> .run, .run -> .bak)');
+        // DeleteFile da False si no habia .bak: es normal
+        Log('ReloadDLL: DeleteFile(.bak) = %s', [BoolToStr(SysUtils.DeleteFile(FBackupDLLName), True)]);
+        // RenameFile da False si no habia .run (primera instalacion): es normal
+        if not RenameFile(FRunDLLName, FBackupDLLName) then
+          LogWinError('ReloadDLL: RenameFile(.run -> .bak)', GetLastError);
+        if not RenameFile(FUpdateDLLName, FRunDLLName) then
+          LogWinError('ReloadDLL: RenameFile(.upd -> .run)', GetLastError);
       end;
 
       // Now load the .run file if it exists
@@ -258,9 +292,14 @@ begin
         FDLL := LoadLibrary(PChar(FRunDLLName));
         if FDLL <> 0 then
         begin
+          Log('ReloadDLL: LoadLibrary("%s") correcto (modulo=$%x)', [FRunDLLName, FDLL]);
           FCallbackVersion := GetProcAddress(FDLL, 'GetFilterVersion');
           FCallbackProc := GetProcAddress(FDLL, 'HttpFilterProc');
           FCallbackTerminate := GetProcAddress(FDLL, 'TerminateFilter');
+          Log('ReloadDLL: exportaciones del hijo: GetFilterVersion=%s HttpFilterProc=%s TerminateFilter=%s',
+            [BoolToStr(Assigned(FCallbackVersion), True),
+             BoolToStr(Assigned(FCallbackProc), True),
+             BoolToStr(Assigned(FCallbackTerminate), True)]);
           if Assigned(FCallbackVersion) then
           begin
             FCallbackVersion(pVer);
@@ -268,8 +307,13 @@ begin
           end
           else
             FFilterFlags := 0;
-        end;
-      end;
+          Log('ReloadDLL: flags de notificacion del hijo=$%x', [FFilterFlags]);
+        end
+        else
+          LogWinError(Format('ReloadDLL: LoadLibrary("%s")', [FRunDLLName]), GetLastError);
+      end
+      else
+        Log('ReloadDLL: no existe "%s", no hay nada que cargar', [FRunDLLName]);
     end;
   finally
     FDLLSync.EndWrite;
@@ -282,9 +326,15 @@ begin
   try
     // Check Notification bit to make sure the DLL should be called
     if Assigned(FCallbackTerminate) then
-      Result := FCallbackTerminate(dwFlags)
+    begin
+      Result := FCallbackTerminate(dwFlags);
+      Log('TerminateFilter del hijo -> %s', [BoolToStr(Result, True)]);
+    end
     else
+    begin
       Result := True;
+      Log('TerminateFilter: no hay filtro hijo cargado');
+    end;
   finally
     FDLLSync.EndRead;
   end;

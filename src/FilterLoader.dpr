@@ -30,6 +30,7 @@ library FilterLoader;
 uses
   ISAPI2,
   Windows,
+  uLog in 'uLog.pas',
   uLoader in 'uLoader.pas';
 
 {$R *.res}
@@ -40,10 +41,12 @@ var
 function LOAD_GetFilterVersion(var pVer: HTTP_FILTER_VERSION): BOOL; export; stdcall;
 begin
   try
+    Log('--- LOAD_GetFilterVersion (IIS carga el filtro) ---');
     gFilterLoader := nil;
     gFilterLoader := CoCreateFilterLoader;
     Result := gFilterLoader.GetFilterVersion(pVer);
   except
+    LogException('LOAD_GetFilterVersion');
     Result := False;
   end;
 end;
@@ -52,7 +55,8 @@ function LOAD_HttpFilterProc(var pfc: THTTP_FILTER_CONTEXT; NotificationType: DW
 begin
   try
     Result:= gFilterLoader.HttpFilterProc(pfc, NotificationType, pvNotification);
-  except 
+  except
+    LogException('LOAD_HttpFilterProc');
     Result:= SF_STATUS_REQ_NEXT_NOTIFICATION;
   end;
 end;
@@ -60,8 +64,10 @@ end;
 function LOAD_TerminateFilter(dwFlags: DWORD): BOOL; export; stdcall;
 begin
   try
+    Log('--- LOAD_TerminateFilter (flags=$%x) ---', [dwFlags]);
     Result:= gFilterLoader.TerminateFilter(dwFlags);
   except
+    LogException('LOAD_TerminateFilter');
     Result:= True;
   end;
 end;
