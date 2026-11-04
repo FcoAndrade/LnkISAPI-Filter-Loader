@@ -5,7 +5,7 @@
 ISAPI Filter Loader (carga una DLL ISAPI en caliente).
 Código original de Daniel "sakura" Wischnewski
 
-Filtro ISAPI de IIS escrito en Delphi que carga y descarga **otro filtro ISAPI en caliente**, de modo que se puede desplegar una versión nueva sin parar ni reiniciar IIS.
+Cargador escrito en Delphi que funciona tanto como **filtro** ISAPI de IIS como **extensión** ISAPI, y que carga y descarga **otro filtro o extensión ISAPI en caliente**, de modo que se puede desplegar una versión nueva sin parar ni reiniciar IIS.
 
 ## Descripción
 
@@ -45,9 +45,13 @@ Cuando aparece un `.upd`, el cargador hace esto:
 
 1. Compila el cargador (ver más abajo) o usa [bin/FilterLoader.dll](bin/FilterLoader.dll).
 2. Cópialo a la carpeta del sitio con **el mismo nombre que tu filtro**, por ejemplo `MiFiltro.dll`.
-3. Registra `MiFiltro.dll` como filtro ISAPI en IIS, como harías con el filtro real.
-4. Copia tu filtro real como `MiFiltro.upd` en la misma carpeta.
-5. En la siguiente petición, el cargador lo activará.
+3. Registra `MiFiltro.dll` en IIS igual que registrarías la DLL real:
+   - **Filtro:** añádelo en *Filtros ISAPI* del sitio.
+   - **Extensión:** no hay nada que registrar; se llama por URL (por ejemplo `http://servidor/WebService/MiFiltro.dll/estado`), con la asignación de controlador y la restricción ISAPI que ya necesitara tu DLL real.
+
+   El cargador exporta los dos conjuntos de puntos de entrada, así que la misma DLL sirve en cualquiera de los dos papeles. Lo que importa es qué es tu DLL real.
+4. Copia tu filtro o extensión real como `MiFiltro.upd` en la misma carpeta. Si ya hay un `MiFiltro.run` (por ejemplo, tras reiniciar IIS), se carga sin necesidad de un `.upd`.
+5. En la siguiente petición, el cargador lo activará. **La identidad del grupo de aplicaciones (`IIS AppPool\<nombre del grupo>`) necesita permiso de *Modificar* en esa carpeta**, porque el cargador renombra y borra ficheros ahí. Sin él, los renombrados fallan con «Acceso denegado» (error 5); el cargador sigue entonces con el `.run` actual, lo anota una vez en el log e ignora ese `.upd` hasta que cambie.
 6. Para cada versión nueva, copia otra vez un `MiFiltro.upd`.
 
 ## Estructura del repositorio
@@ -63,7 +67,8 @@ Cuando aparece un `.upd`, el cargador hace esto:
 
 ## Cómo funciona por dentro
 
-- **Puntos de entrada:** `GetFilterVersion`, `HttpFilterProc` y `TerminateFilter`, los tres del contrato ISAPI. El cargador los expone y los reenvía al filtro cargado.
+- **Puntos de entrada:** `GetFilterVersion`, `HttpFilterProc` y `TerminateFilter` (contrato de filtro), y `GetExtensionVersion`, `HttpExtensionProc` y `TerminateExtension` (contrato de extensión). El cargador expone los seis y los reenvía a la DLL cargada, sea del tipo que sea.
+- **Extensiones:** cuando el hijo es una extensión, el cargador llama una sola vez a su `GetExtensionVersion`, justo al cargarlo, y guarda la información de versión. Cuando IIS llama al `GetExtensionVersion` del cargador, se le devuelve esa información guardada sin volver a llamar al hijo, porque algunas extensiones (WebBroker, DMVCFramework) se inicializan ahí. `HttpExtensionProc` mantiene el bloqueo de lectura durante toda la llamada, así que una recarga espera a las peticiones en curso. Al descargar, el hijo recibe `TerminateExtension(HSE_TERM_MUST_UNLOAD)`.
 - **Concurrencia:** dos `TMultiReadExclusiveWriteSynchronizer`.
   - `FDLLSync` protege los punteros al filtro cargado. Cada petición toma lectura y la recarga toma escritura, así que nadie usa la DLL mientras se descarga.
   - `FCheckSync` evita que varios hilos comprueben el `.upd` a la vez.
@@ -76,12 +81,13 @@ Cuando aparece un `.upd`, el cargador hace esto:
 
 - Proyecto de **Delphi**: abre [src/FilterLoader.dproj](src/FilterLoader.dproj) en el IDE y compila.
 - Usa la unidad `ISAPI2`, que trae Delphi.
-- La configuración **Debug** define el símbolo `DEBUG`: reduce el intervalo de comprobación a 500 ms y activa el log (ver abajo). La configuración **Release** no incluye ninguna de las dos cosas.
+- La configuración **Debug** define el símbolo `DEBUG`: reduce el intervalo de comprobación a 500 ms y activa el log (ver abajo). Además compila con información de depuración completa (símbolos locales, referencias de símbolos, DCU de depuración), un fichero de mapa detallado (`FilterLoader.map`, útil para resolver direcciones de fallo en `w3wp.exe` con WinDbg) y aserciones en ejecución, con la optimización desactivada y los marcos de pila activados. La configuración **Release** no incluye nada de esto.
+- **Carpetas de salida:** cada configuración tiene la suya: la DLL va a `bin\Debug\` o `bin\Release\` (la de Debug lleva además su `.map`), y los `.dcu` a `src\Win32\Debug\` o `src\Win32\Release\`. Ya no se pisan entre sí.
 - **Bits:** hoy el proyecto compila **solo en 32 bits** (`Win32` está activa y `Win64` no; la DLL ya compilada es x86). Un grupo de aplicaciones de IIS de 64 bits solo carga filtros ISAPI de 64 bits, así que con esta DLL hay que activar «Habilitar aplicaciones de 32 bits» en el grupo. El cargador y el filtro hijo deben tener los mismos bits. Hay prevista una versión de 64 bits (ver [Tareas.md](Tareas.md)).
 
 ## Log de depuración
 
-Con la configuración Debug, el cargador escribe un log en la misma carpeta que la DLL, con su mismo nombre y extensión `.log` (por ejemplo `MiFiltro.log`). Cada línea lleva fecha y hora, el identificador de proceso y de hilo, y el mensaje:
+Con la configuración Debug, el cargador escribe un log en la carpeta `logs` que cuelga de la de la DLL, con el mismo nombre que la DLL más `.log` (por ejemplo `logs\MiFiltro.dll.log`). La carpeta se crea si no existe; si no se puede crear, el log va a la propia carpeta de la DLL. Cada línea lleva fecha y hora, el identificador de proceso y de hilo, y el mensaje:
 
 ```
 2026-11-04 22:10:31.532 [4128:5512] ReloadDLL: ShouldReload=True (hijo cargado=False, .upd existe=True)
@@ -89,7 +95,7 @@ Con la configuración Debug, el cargador escribe un log en la misma carpeta que 
 
 Se registra la creación y destrucción del cargador, cada decisión de recarga, el resultado de los renombrados, `LoadLibrary` con su error de Windows, las exportaciones y los flags del filtro hijo, las excepciones, y cada notificación (si se reenvió al hijo o no) con su resultado. Los mensajes están escritos en castellano.
 
-- La identidad del grupo de aplicaciones de IIS necesita **permiso de escritura** en la carpeta del filtro. Si no lo tiene, no se crea el fichero (no da error).
+- La identidad del grupo de aplicaciones de IIS necesita **permiso de escritura** en la carpeta del filtro (para crear `logs` y escribir en ella). Si no lo tiene, no se crea el fichero (no da error).
 - El fichero rota a `.log.old` al pasar de 2 MB.
 - Los mismos mensajes salen por `OutputDebugString`, así que también se ven con DebugView.
 - En Release el log no existe: las rutinas están vacías.
@@ -101,6 +107,8 @@ Se registra la creación y destrucción del cargador, cada decisión de recarga,
 - IIS llama a `GetFilterVersion` una sola vez. Si la versión nueva del filtro cambia sus flags o su configuración inicial, hay que reiniciar IIS. El cargador sí actualiza internamente los flags que usa para filtrar.
 - Si el `.upd` no se puede cargar, o no existe el `.run`, el filtro queda inactivo y deja pasar todas las peticiones sin avisar (en compilaciones Debug, el log indica el motivo).
 - El `.bak` solo guarda la versión inmediatamente anterior.
+- Las extensiones que responden de forma asíncrona (`HSE_STATUS_PENDING`) pueden seguir ejecutándose cuando una recarga las descarga. El cargador solo protege la duración de la propia llamada a `HttpExtensionProc`.
+- Los nombres de fichero son `.upd`, `.run` y `.bak`. Otros cargadores usan nombres distintos (por ejemplo `.new`, `.update` o `.backup`), así que este ignora los ficheros con esos nombres.
 
 ## Problemas conocidos y mejoras propuestas
 
@@ -110,10 +118,8 @@ Resultado de revisar el código. El seguimiento está en [Tareas.md](Tareas.md).
 
 1. **Desbordamiento de búfer en las rutas** ([src/uLoader.pas](src/uLoader.pas), `GetLongFileName` y `GetModuleName`): se pasa `SizeOf(Buffer)` (bytes) donde las API de Windows esperan el tamaño en caracteres, y el búfer de `GetLongFileName` no se inicializa.
 2. **`TerminateFilter` no libera el cargador** ([src/FilterLoader.dpr](src/FilterLoader.dpr)): `gFilterLoader` sigue vivo, y el `FreeLibrary` del filtro hijo se ejecuta al descargarse la DLL, dentro del bloqueo del cargador de Windows.
-3. **Puede no cargar si IIS arranca con el equipo recién encendido**: con menos de 10 s de actividad la comprobación rápida da `False`, el hijo no se carga y IIS no vuelve a intentarlo.
-4. **`pVer` sin inicializar al llamar al hijo**: `ReloadDLL` usa una variable local con basura, y en la primera carga el hijo recibe `GetFilterVersion` dos veces.
-5. **Una versión nueva defectuosa deja el filtro inactivo sin aviso**: no se comprueba el resultado de los renombrados y, si `LoadLibrary` falla, no se restaura el `.bak`.
-6. **Con solo un `.run` (sin `.upd`) el filtro nunca se carga**: `CanAccessDLL` intenta abrir el `.upd` aunque no exista, así que tras reiniciar IIS, con la versión ya en `.run`, `ReloadDLL` no carga nada.
+3. **`pVer` sin inicializar al llamar al hijo (filtros)**: `ReloadDLL` usa una variable local con basura, y en la primera carga el hijo recibe `GetFilterVersion` dos veces. (Las extensiones no tienen este problema: ver «Cómo funciona por dentro».)
+4. **Una versión nueva defectuosa deja el filtro inactivo sin aviso**: no se comprueba el resultado de los renombrados y, si `LoadLibrary` falla, no se restaura el `.bak`.
 
 ### Mejoras
 

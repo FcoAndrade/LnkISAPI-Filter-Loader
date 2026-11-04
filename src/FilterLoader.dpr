@@ -42,8 +42,8 @@ function LOAD_GetFilterVersion(var pVer: HTTP_FILTER_VERSION): BOOL; export; std
 begin
   try
     Log('--- LOAD_GetFilterVersion (IIS carga el filtro) ---');
-    gFilterLoader := nil;
-    gFilterLoader := CoCreateFilterLoader;
+    if gFilterLoader = nil then
+      gFilterLoader := CoCreateFilterLoader;
     Result := gFilterLoader.GetFilterVersion(pVer);
   except
     LogException('LOAD_GetFilterVersion');
@@ -66,16 +66,67 @@ begin
   try
     Log('--- LOAD_TerminateFilter (flags=$%x) ---', [dwFlags]);
     Result:= gFilterLoader.TerminateFilter(dwFlags);
+    // IIS va a descargar la DLL: se libera aqui el cargador (y con el el hijo)
+    // y no al finalizar las unidades, ya dentro del bloqueo del cargador de Windows.
+    gFilterLoader := nil;
   except
     LogException('LOAD_TerminateFilter');
     Result:= True;
   end;
 end;
 
+// ---- Extension ISAPI (se invoca por URL, p. ej. /WebService/MiDll.dll/ruta) ----
+// pVer es un HSE_VERSION_INFO y pECB un EXTENSION_CONTROL_BLOCK; se pasan como
+// Pointer (misma convencion stdcall que un parametro var).
+
+function LOAD_GetExtensionVersion(pVer: Pointer): BOOL; export; stdcall;
+begin
+  try
+    Log('--- LOAD_GetExtensionVersion (IIS carga la extension) ---');
+    // No se recrea el cargador si ya existe (filtro y extension pueden convivir)
+    if gFilterLoader = nil then
+      gFilterLoader := CoCreateFilterLoader;
+    Result := gFilterLoader.GetExtensionVersion(pVer);
+  except
+    LogException('LOAD_GetExtensionVersion');
+    Result := False;
+  end;
+end;
+
+function LOAD_HttpExtensionProc(pECB: Pointer): DWORD; export; stdcall;
+begin
+  try
+    Log('--- LOAD_HttpExtensionProc (IIS manda una peticion) ---');
+    Result := gFilterLoader.HttpExtensionProc(pECB);
+  except
+    LogException('LOAD_HttpExtensionProc');
+    Result := 4; // HSE_STATUS_ERROR
+  end;
+end;
+
+function LOAD_TerminateExtension(dwFlags: DWORD): BOOL; export; stdcall;
+begin
+  try
+    Log('--- LOAD_TerminateExtension (flags=$%x) ---', [dwFlags]);
+    Result := gFilterLoader.TerminateExtension(dwFlags);
+    // Si el hijo acepta (TRUE), IIS descargara esta DLL: se libera aqui el
+    // cargador (y con el el hijo), fuera del bloqueo del cargador de Windows.
+    // Si responde FALSE a un aviso, IIS la mantiene y no se toca nada.
+    if Result then
+      gFilterLoader := nil;
+  except
+    LogException('LOAD_TerminateExtension');
+    Result := True;
+  end;
+end;
+
 exports
   LOAD_GetFilterVersion name 'GetFilterVersion',
   LOAD_HttpFilterProc name 'HttpFilterProc',
-  LOAD_TerminateFilter name 'TerminateFilter';
+  LOAD_TerminateFilter name 'TerminateFilter',
+  LOAD_GetExtensionVersion name 'GetExtensionVersion',
+  LOAD_HttpExtensionProc name 'HttpExtensionProc',
+  LOAD_TerminateExtension name 'TerminateExtension';
 
 begin
   IsMultiThread := True;

@@ -6,10 +6,12 @@
   de escritura ni ficheros.
 
   Cuando esta activo escribe:
-    - En un fichero junto a la DLL con el mismo nombre base y extension .log
-      (p. ej. MiFiltro.log). La identidad del grupo de aplicaciones de IIS
-      necesita permiso de escritura en esa carpeta. Al pasar de 2 MB el fichero
-      se renombra a .log.old (se sobrescribe el anterior).
+    - En la carpeta "logs" que cuelga de la carpeta de la DLL, con el nombre
+      completo de la DLL mas .log (p. ej. logs\MiFiltro.dll.log). Se crea si no
+      existe; si no se puede crear, se usa la carpeta de la DLL. La identidad
+      del grupo de aplicaciones de IIS necesita permiso de escritura ahi. Al
+      pasar de 2 MB el fichero se renombra a .log.old (se sobrescribe el
+      anterior).
     - En OutputDebugString, para verlo con DebugView o en el IDE.
 
   Un fallo al escribir el log nunca se propaga: no puede romper una peticion.
@@ -52,6 +54,24 @@ begin
     Result := ''
   else
     SetString(Result, Buffer, Len);
+end;
+
+// <carpeta de la DLL>\logs\<nombre de la DLL>.log. Si no se puede crear la
+// carpeta logs, se usa la carpeta de la DLL.
+function LogFileName: string;
+var
+  Module, Dir: string;
+begin
+  Module := ModuleFileName;
+  if Module = '' then
+  begin
+    Result := '';
+    Exit;
+  end;
+  Dir := ExtractFilePath(Module) + 'logs\';
+  if not DirectoryExists(Dir) and not ForceDirectories(Dir) then
+    Dir := ExtractFilePath(Module);
+  Result := Dir + ExtractFileName(Module) + '.log';
 end;
 
 function OpenLogFile: THandle;
@@ -98,9 +118,7 @@ begin
     try
       if not GLogReady then
       begin
-        GLogFile := ModuleFileName;
-        if GLogFile <> '' then
-          GLogFile := ChangeFileExt(GLogFile, '.log');
+        GLogFile := LogFileName;
         GLogReady := True;
       end;
       WriteToFile(Line);

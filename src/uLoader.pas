@@ -44,9 +44,14 @@ const
 type
   IFilterLoader = interface
     ['{1FEE4F6E-C6BA-4D41-9E98-501637B8C9E6}']
+    // Filtro ISAPI
     function GetFilterVersion(var pVer: HTTP_FILTER_VERSION): BOOL;
     function HttpFilterProc(var pfc: THTTP_FILTER_CONTEXT; NotificationType: DWORD; pvNotification: Pointer): DWORD;
     function TerminateFilter(dwFlags: DWORD): BOOL;
+    // Extension ISAPI (pVer es un HSE_VERSION_INFO y pECB un EXTENSION_CONTROL_BLOCK)
+    function GetExtensionVersion(pVer: Pointer): BOOL;
+    function HttpExtensionProc(pECB: Pointer): DWORD;
+    function TerminateExtension(dwFlags: DWORD): BOOL;
   end;
 
 function CoCreateFilterLoader: IFilterLoader;
@@ -67,6 +72,30 @@ begin
   Result := Buffer;
 end;
 
+// Nombre del usuario con el que corre el proceso (solo para el log)
+function CurrentUserName: string;
+var
+  Buffer: array[0..256] of WideChar;
+  Size: DWORD;
+begin
+  Size := Length(Buffer);
+  if GetUserNameW(Buffer, Size) then
+    Result := Buffer
+  else
+    Result := '(desconocido)';
+end;
+
+// Fecha de modificacion de un fichero; 0 si no existe o no se puede leer
+function FileStamp(const FileName: string): TDateTime;
+var
+  D: TDateTime;
+begin
+  if FileAge(FileName, D) then
+    Result := D
+  else
+    Result := 0;
+end;
+
 function GetModuleName: WideString;
 var
   TheFileName : array[0..1023] of WideChar;
@@ -76,7 +105,19 @@ begin
   Result := GetLongFileName(TheFileName);
 end;
 
+const
+  // Valores de httpext.h
+  EXT_STATUS_ERROR = 4;          // HSE_STATUS_ERROR
+  EXT_TERM_MUST_UNLOAD = 2;      // HSE_TERM_MUST_UNLOAD (1 es HSE_TERM_ADVISORY_UNLOAD)
+  EXT_VERSION_INFO_SIZE = 260;   // SizeOf(HSE_VERSION_INFO): DWORD + 256 caracteres
+
 type
+  // Punteros a las funciones de una extension ISAPI. Se declaran con Pointer
+  // para no depender de los nombres de tipos de la unidad ISAPI2.
+  TExtVersionProc = function(pVer: Pointer): BOOL; stdcall;
+  TExtProc = function(pECB: Pointer): DWORD; stdcall;
+  TExtTerminateProc = function(dwFlags: DWORD): BOOL; stdcall;
+
   TFilterLoader = class(TInterfacedObject, IFilterLoader)
   private
     FLastTimeCheck: LongWord;
@@ -86,6 +127,15 @@ type
     FCallbackVersion: TGetFilterVersion;
     FCallbackProc: THttpFilterProc;
     FCallbackTerminate: TTerminateExtension;
+    // Si el hijo es una extension ISAPI
+    FExtVersion: TExtVersionProc;
+    FExtProc: TExtProc;
+    FExtTerminate: TExtTerminateProc;
+    FExtReady: Boolean;
+    // Fecha del .upd cuya aplicacion fallo (p. ej. por permisos); 0 = ninguno.
+    // Mientras el .upd no cambie no se vuelve a intentar ni a descargar el hijo.
+    FBlockedUpdateStamp: TDateTime;
+    FExtVerInfo: array[0..EXT_VERSION_INFO_SIZE - 1] of Byte;
     FBackupDLLName, FRunDLLName, FUpdateDLLName: string;
     FFilterFlags: DWord;
     procedure ReloadDLL;
@@ -97,6 +147,9 @@ type
     function GetFilterVersion(var pVer: HTTP_FILTER_VERSION): BOOL;
     function HttpFilterProc(var pfc: THTTP_FILTER_CONTEXT; NotificationType: DWORD; pvNotification: Pointer): DWORD;
     function TerminateFilter(dwFlags: DWORD): BOOL;
+    function GetExtensionVersion(pVer: Pointer): BOOL;
+    function HttpExtensionProc(pECB: Pointer): DWORD;
+    function TerminateExtension(dwFlags: DWORD): BOOL;
   end;
 
 function CoCreateFilterLoader: IFilterLoader;
@@ -110,6 +163,12 @@ function TFilterLoader.CanAccessDLL: Boolean;
 var
   FS: TFileStream;
 begin
+  // Sin .upd no hay nada que esperar: si ya hay un .run, se puede cargar
+  if not FileExists(FUpdateDLLName) then
+  begin
+    Result := True;
+    Exit;
+  end;
   try
     FS := TFileStream.Create(FUpdateDLLName, fmOpenRead or fmShareExclusive);
     try
@@ -129,6 +188,7 @@ end;
 constructor TFilterLoader.Create;
 var
   ThisModule: string;
+  Age: TDateTime;
 begin
   inherited Create;
   FDLLSync := TMultiReadExclusiveWriteSynchronizer.Create;
@@ -137,6 +197,14 @@ begin
   FBackupDLLName := ChangeFileExt(ThisModule, '.bak');
   FRunDLLName := ChangeFileExt(ThisModule, '.run');
   FUpdateDLLName := ChangeFileExt(ThisModule, '.upd');
+  // La fecha del fichero de la DLL es la de su compilacion: sirve para saber
+  // que version esta desplegada.
+  Age := FileStamp(ThisModule);
+  if Age = 0 then
+    Log('==== Cargador iniciado (fecha de la DLL desconocida) ====')
+  else
+    Log('==== Cargador de fecha %s ====', [FormatDateTime('yyyy-mm-dd hh:nn:ss', Age)]);
+  Log('Proceso ejecutandose como usuario "%s" (con ApplicationPoolIdentity es el nombre del grupo de aplicaciones)', [CurrentUserName]);
   Log('TFilterLoader.Create: modulo="%s" upd="%s" run="%s" bak="%s" espera=%d ms',
     [ThisModule, FUpdateDLLName, FRunDLLName, FBackupDLLName, WAIT_BEFORE_CHECK]);
 end;
@@ -144,9 +212,15 @@ end;
 destructor TFilterLoader.Destroy;
 begin
   Log('TFilterLoader.Destroy (filtro hijo cargado=%s)', [BoolToStr(FDLL <> 0, True)]);
-  // unload DLL
+  // El hijo NO se descarga con FreeLibrary: el cargador solo se destruye al
+  // apagar (IIS ya llamo a TerminateExtension/TerminateFilter), y descargar un
+  // hijo con hilos propios (p. ej. DMVCFramework) se queda colgado: FreeLibrary
+  // toma el bloqueo del cargador de Windows y el DllMain(DETACH) del hijo espera
+  // a que terminen sus hilos, que para salir necesitan ese mismo bloqueo. Al
+  // terminar el proceso, Windows ya habra matado esos hilos y lo descarga sin
+  // esperar.
   if FDLL <> 0 then
-    FreeLibrary(FDLL);
+    Log('TFilterLoader.Destroy: se deja el hijo cargado, lo descarga Windows al terminar el proceso');
   FDLLSync.Free;
   FCheckSync.Free;
   inherited Destroy;
@@ -159,7 +233,8 @@ begin
   // Quick Check
   FCheckSync.BeginRead;
   try
-    NeedCheck := (GetTickCount - FLastTimeCheck) >= WAIT_BEFORE_CHECK;
+    // FLastTimeCheck = 0: todavia no se ha comprobado nunca (primera peticion)
+    NeedCheck := (FLastTimeCheck = 0) or ((GetTickCount - FLastTimeCheck) >= WAIT_BEFORE_CHECK);
   finally
     FCheckSync.EndRead;
   end;
@@ -170,7 +245,7 @@ begin
       // Recheck in case another thread has updated
       FDLLSync.BeginRead;
       try
-        NeedCheck := (FDLL = 0) or ((GetTickCount - FLastTimeCheck) >= WAIT_BEFORE_CHECK);
+        NeedCheck := (FLastTimeCheck = 0) or ((GetTickCount - FLastTimeCheck) >= WAIT_BEFORE_CHECK);
       finally
         FDLLSync.EndRead;
       end;
@@ -244,16 +319,23 @@ end;
 
 procedure TFilterLoader.ReloadDLL;
 var
-  ShouldReload: Boolean;
+  ShouldReload, UpdExists, UpdBlocked: Boolean;
   pVer: THTTP_FILTER_VERSION;
 begin
   FDLLSync.BeginWrite;
   try
     // First Determine if we really should
-    ShouldReload := ((FDLL=0) or FileExists(FUpdateDLLName)) and CanAccessDLL;
-    Log('ReloadDLL: ShouldReload=%s (hijo cargado=%s, .upd existe=%s)',
+    UpdExists := FileExists(FUpdateDLLName);
+    // Un .upd cuya aplicacion ya fallo (mismo fichero, misma fecha) se ignora:
+    // sin esto se descargaria y recargaria el hijo en cada comprobacion.
+    UpdBlocked := UpdExists and (FBlockedUpdateStamp <> 0) and
+      (FileStamp(FUpdateDLLName) = FBlockedUpdateStamp);
+    // Si no hay hijo cargado se carga el .run aunque el .upd este bloqueado
+    ShouldReload := ((FDLL=0) or (UpdExists and not UpdBlocked)) and
+      (UpdBlocked or CanAccessDLL);
+    Log('ReloadDLL: ShouldReload=%s (hijo cargado=%s, .upd existe=%s, .upd bloqueado=%s)',
       [BoolToStr(ShouldReload, True), BoolToStr(FDLL <> 0, True),
-       BoolToStr(FileExists(FUpdateDLLName), True)]);
+       BoolToStr(UpdExists, True), BoolToStr(UpdBlocked, True)]);
     if ShouldReload then
     begin
       // First unload the DLL
@@ -266,24 +348,43 @@ begin
         except
           LogException('ReloadDLL: TerminateFilter del hijo');
         end;
+        if Assigned(FExtTerminate) and FExtReady then
+        try
+          FExtTerminate(EXT_TERM_MUST_UNLOAD);
+        except
+          LogException('ReloadDLL: TerminateExtension del hijo');
+        end;
         FreeLibrary(FDLL);
         FDLL := 0;
         FCallbackVersion := nil;
         FCallbackProc := nil;
         FCallbackTerminate := nil;
+        FExtVersion := nil;
+        FExtProc := nil;
+        FExtTerminate := nil;
+        FExtReady := False;
       end;
 
       // check for update file, if exists then rename things;
-      if FileExists(FUpdateDLLName) then
+      if UpdExists and not UpdBlocked then
       begin
         Log('ReloadDLL: aplicando actualizacion (.upd -> .run, .run -> .bak)');
+        Log('ReloadDLL: atributos antes de renombrar: .run=$%x .upd=$%x .bak=$%x (-1 = no existe; $1 = solo lectura)',
+          [FileGetAttr(FRunDLLName), FileGetAttr(FUpdateDLLName), FileGetAttr(FBackupDLLName)]);
         // DeleteFile da False si no habia .bak: es normal
         Log('ReloadDLL: DeleteFile(.bak) = %s', [BoolToStr(SysUtils.DeleteFile(FBackupDLLName), True)]);
         // RenameFile da False si no habia .run (primera instalacion): es normal
         if not RenameFile(FRunDLLName, FBackupDLLName) then
           LogWinError('ReloadDLL: RenameFile(.run -> .bak)', GetLastError);
-        if not RenameFile(FUpdateDLLName, FRunDLLName) then
+        if RenameFile(FUpdateDLLName, FRunDLLName) then
+          FBlockedUpdateStamp := 0
+        else
+        begin
           LogWinError('ReloadDLL: RenameFile(.upd -> .run)', GetLastError);
+          FBlockedUpdateStamp := FileStamp(FUpdateDLLName);
+          Log('ReloadDLL: ACTUALIZACION BLOQUEADA: no se pudo renombrar el .upd. Se carga el .run actual y este .upd se ignora hasta que cambie. ' +
+            'Compruebe que la identidad del grupo de aplicaciones de IIS tiene permiso de Modificar en la carpeta.');
+        end;
       end;
 
       // Now load the .run file if it exists
@@ -308,6 +409,32 @@ begin
           else
             FFilterFlags := 0;
           Log('ReloadDLL: flags de notificacion del hijo=$%x', [FFilterFlags]);
+
+          // Si el hijo es una extension ISAPI se inicializa aqui, una sola vez,
+          // y la informacion de version se guarda para devolverla a IIS sin
+          // volver a llamar al hijo (algunas extensiones se inicializan ahi).
+          FExtVersion := GetProcAddress(FDLL, 'GetExtensionVersion');
+          FExtProc := GetProcAddress(FDLL, 'HttpExtensionProc');
+          FExtTerminate := GetProcAddress(FDLL, 'TerminateExtension');
+          FExtReady := False;
+          Log('ReloadDLL: exportaciones de extension del hijo: GetExtensionVersion=%s HttpExtensionProc=%s TerminateExtension=%s',
+            [BoolToStr(Assigned(FExtVersion), True),
+             BoolToStr(Assigned(FExtProc), True),
+             BoolToStr(Assigned(FExtTerminate), True)]);
+          if Assigned(FExtVersion) and Assigned(FExtProc) then
+          begin
+            FillChar(FExtVerInfo, SizeOf(FExtVerInfo), 0);
+            PDWORD(@FExtVerInfo[0])^ := $00010000; // HSE_VERSION_MAJOR 1, MINOR 0
+            try
+              FExtReady := FExtVersion(@FExtVerInfo[0]);
+            except
+              LogException('ReloadDLL: GetExtensionVersion del hijo');
+              FExtReady := False;
+            end;
+            Log('ReloadDLL: GetExtensionVersion del hijo -> %s', [BoolToStr(FExtReady, True)]);
+          end
+          else if not (Assigned(FCallbackVersion) and Assigned(FCallbackProc)) then
+            Log('ReloadDLL: AVISO: el hijo no exporta ni funciones de filtro ni de extension');
         end
         else
           LogWinError(Format('ReloadDLL: LoadLibrary("%s")', [FRunDLLName]), GetLastError);
@@ -317,6 +444,75 @@ begin
     end;
   finally
     FDLLSync.EndWrite;
+  end;
+end;
+
+function TFilterLoader.GetExtensionVersion(pVer: Pointer): BOOL;
+begin
+  DoUpdateIfNeeded;
+  FDLLSync.BeginRead;
+  try
+    // IIS llama a esto una sola vez. El hijo ya se inicializo en ReloadDLL;
+    // aqui solo se le devuelve a IIS la version que dio el hijo.
+    if FExtReady and Assigned(pVer) then
+    begin
+      Move(FExtVerInfo[0], pVer^, SizeOf(FExtVerInfo));
+      Result := True;
+      Log('GetExtensionVersion: devuelta la version del hijo');
+    end
+    else
+    begin
+      Result := False;
+      Log('GetExtensionVersion: no hay extension hija lista, se devuelve False');
+    end;
+  finally
+    FDLLSync.EndRead;
+  end;
+end;
+
+function TFilterLoader.HttpExtensionProc(pECB: Pointer): DWORD;
+var
+  T0: DWORD;
+begin
+  DoUpdateIfNeeded;
+  FDLLSync.BeginRead;
+  try
+    // El bloqueo de lectura se mantiene durante toda la llamada: una recarga
+    // espera a que terminen las peticiones en curso.
+    if FExtReady and Assigned(FExtProc) then
+    begin
+      // Se registra la entrada antes de llamar: si el hijo se cuelga, queda rastro
+      T0 := GetTickCount;
+      Log('HttpExtensionProc: entrada, llamando al hijo');
+      Result := FExtProc(pECB);
+      Log('HttpExtensionProc: atendida por el hijo -> resultado=%d en %d ms', [Result, GetTickCount - T0]);
+    end
+    else
+    begin
+      Result := EXT_STATUS_ERROR;
+      Log('HttpExtensionProc: no hay extension hija lista, se devuelve error');
+    end;
+  finally
+    FDLLSync.EndRead;
+  end;
+end;
+
+function TFilterLoader.TerminateExtension(dwFlags: DWORD): BOOL;
+begin
+  FDLLSync.BeginRead;
+  try
+    if Assigned(FExtTerminate) and FExtReady then
+    begin
+      Result := FExtTerminate(dwFlags);
+      Log('TerminateExtension del hijo -> %s', [BoolToStr(Result, True)]);
+    end
+    else
+    begin
+      Result := True;
+      Log('TerminateExtension: no hay extension hija cargada');
+    end;
+  finally
+    FDLLSync.EndRead;
   end;
 end;
 

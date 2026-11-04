@@ -5,7 +5,7 @@
 ISAPI Filter Loader (Load DLL ISAPI on fly).
 Source Daniel "sakura" Wischnewski
 
-An IIS ISAPI filter written in Delphi that loads and unloads **another ISAPI filter on the fly**, so you can deploy a new version without stopping or restarting IIS.
+A loader written in Delphi that works both as an IIS ISAPI **filter** and as an ISAPI **extension**, and loads and unloads **another ISAPI filter or extension on the fly**, so you can deploy a new version without stopping or restarting IIS.
 
 ## Description
 
@@ -45,9 +45,13 @@ When a `.upd` appears, the loader does the following:
 
 1. Build the loader (see below) or use [bin/FilterLoader.dll](bin/FilterLoader.dll).
 2. Copy it to the site folder with **the same name as your filter**, for example `MyFilter.dll`.
-3. Register `MyFilter.dll` as an ISAPI filter in IIS, as you would the real filter.
-4. Copy your real filter as `MyFilter.upd` into the same folder.
-5. On the next request the loader activates it.
+3. Register `MyFilter.dll` in IIS the same way you would register the real one:
+   - **Filter:** add it under *ISAPI Filters* of the site.
+   - **Extension:** nothing to register; it is called by URL (for example `http://server/WebService/MyFilter.dll/status`), with the handler mapping and ISAPI restriction your real DLL already needed.
+
+   The loader exports both sets of entry points, so the same DLL works in either role. What matters is what your real DLL is.
+4. Copy your real filter or extension as `MyFilter.upd` into the same folder. If a `MyFilter.run` is already there (for example after restarting IIS), it is loaded without needing a `.upd`.
+5. On the next request the loader activates it. **The application pool identity (`IIS AppPool\<pool name>`) needs *Modify* permission on that folder**, because the loader renames and deletes files there. Without it the renames fail with "Access denied" (error 5); the loader then keeps running the current `.run`, logs the problem once and ignores that `.upd` until it changes.
 6. For every new version, copy another `MyFilter.upd`.
 
 ## Repository layout
@@ -63,7 +67,8 @@ When a `.upd` appears, the loader does the following:
 
 ## How it works internally
 
-- **Entry points:** `GetFilterVersion`, `HttpFilterProc` and `TerminateFilter`, the three of the ISAPI contract. The loader exposes them and forwards them to the loaded filter.
+- **Entry points:** `GetFilterVersion`, `HttpFilterProc` and `TerminateFilter` (filter contract), and `GetExtensionVersion`, `HttpExtensionProc` and `TerminateExtension` (extension contract). The loader exposes all six and forwards them to the loaded DLL, whichever kind it is.
+- **Extensions:** when the child is an extension, the loader calls its `GetExtensionVersion` once, right after loading it, and keeps the version information. When IIS calls the loader's `GetExtensionVersion`, that stored information is returned without calling the child a second time, because some extensions (WebBroker, DMVCFramework) initialise themselves there. `HttpExtensionProc` holds the read lock for the whole call, so a reload waits for the requests in progress. On unload the child receives `TerminateExtension(HSE_TERM_MUST_UNLOAD)`.
 - **Concurrency:** two `TMultiReadExclusiveWriteSynchronizer`.
   - `FDLLSync` protects the pointers to the loaded filter. Every request takes a read lock and the reload takes a write lock, so nobody uses the DLL while it is being unloaded.
   - `FCheckSync` prevents several threads from checking for the `.upd` at the same time.
@@ -76,12 +81,13 @@ When a `.upd` appears, the loader does the following:
 
 - **Delphi** project: open [src/FilterLoader.dproj](src/FilterLoader.dproj) in the IDE and build.
 - It uses the `ISAPI2` unit that ships with Delphi.
-- The **Debug** configuration defines the `DEBUG` symbol: it reduces the check interval to 500 ms and enables the log (see below). The **Release** configuration includes neither.
+- The **Debug** configuration defines the `DEBUG` symbol: it reduces the check interval to 500 ms and enables the log (see below). It also builds with full debug information (local symbols, symbol references, debug DCUs), a detailed map file (`FilterLoader.map`, handy to resolve crash addresses in `w3wp.exe` with WinDbg) and runtime assertions, with optimisation off and stack frames on. The **Release** configuration includes none of this.
+- **Output folders:** each configuration has its own: the DLL goes to `bin\Debug\` or `bin\Release\` (the Debug one also gets its `.map`), and the `.dcu` files to `src\Win32\Debug\` or `src\Win32\Release\`. They no longer overwrite each other.
 - **Bitness:** the project currently builds **32-bit only** (`Win32` is enabled and `Win64` is not; the prebuilt DLL is x86). A 64-bit IIS application pool only loads 64-bit ISAPI filters, so with this DLL you must enable "Enable 32-Bit Applications" on the pool. The loader and the child filter must have the same bitness. A 64-bit build is planned (see [Tareas.md](Tareas.md)).
 
 ## Debug log
 
-With the Debug configuration, the loader writes a log in the same folder as the DLL, with the same base name and a `.log` extension (for example `MyFilter.log`). Every line has the date and time, the process and thread ids, and the message:
+With the Debug configuration, the loader writes a log in the `logs` folder next to the DLL, named exactly like the DLL plus `.log` (for example `logs\MyFilter.dll.log`). The folder is created if it does not exist; if it cannot be created, the log goes in the DLL folder itself. Every line has the date and time, the process and thread ids, and the message:
 
 ```
 2026-11-04 22:10:31.532 [4128:5512] ReloadDLL: ShouldReload=True (hijo cargado=False, .upd existe=True)
@@ -89,7 +95,7 @@ With the Debug configuration, the loader writes a log in the same folder as the 
 
 The log records the creation and destruction of the loader, every reload decision, the result of the renames, `LoadLibrary` with its Windows error, the exports and flags of the child filter, exceptions, and every notification (whether it was forwarded to the child or not) with its result. The messages themselves are written in Spanish.
 
-- The IIS application pool identity needs **write permission** on the filter folder. If it does not have it, the file is not created (and no error is raised).
+- The IIS application pool identity needs **write permission** on the filter folder (to create `logs` and write in it). If it does not have it, the file is not created (and no error is raised).
 - The file rotates to `.log.old` when it exceeds 2 MB.
 - The same messages are sent to `OutputDebugString`, so they can also be seen with DebugView.
 - In Release the log does not exist: the routines are empty.
@@ -101,6 +107,8 @@ The log records the creation and destruction of the loader, every reload decisio
 - IIS calls `GetFilterVersion` only once. If the new version of the filter changes its flags or its initial configuration, IIS must be restarted. The loader does update internally the flags it uses for filtering.
 - If the `.upd` cannot be loaded, or the `.run` does not exist, the filter stays inactive and lets every request through without any warning (the log shows why in Debug builds).
 - The `.bak` only keeps the immediately previous version.
+- Extensions that answer asynchronously (`HSE_STATUS_PENDING`) can still be running when a reload unloads them. The loader only protects the duration of the `HttpExtensionProc` call itself.
+- The file names are `.upd`, `.run` and `.bak`. Other loaders use different names (for example `.new`, `.update` or `.backup`), so files named that way are ignored by this one.
 
 ## Known issues and proposed improvements
 
@@ -110,10 +118,8 @@ Result of a code review. Tracking is in [Tareas.md](Tareas.md). Nothing below is
 
 1. **Buffer overflow in the paths** ([src/uLoader.pas](src/uLoader.pas), `GetLongFileName` and `GetModuleName`): `SizeOf(Buffer)` (bytes) is passed where the Windows APIs expect the size in characters, and the buffer in `GetLongFileName` is not initialised.
 2. **`TerminateFilter` does not release the loader** ([src/FilterLoader.dpr](src/FilterLoader.dpr)): `gFilterLoader` stays alive, and the child's `FreeLibrary` runs when the DLL is unloaded, inside the Windows loader lock.
-3. **It may fail to load if IIS starts right after the machine boots**: with less than 10 s of uptime the quick check returns `False`, the child is not loaded and IIS never retries.
-4. **Uninitialised `pVer` when calling the child**: `ReloadDLL` uses a local variable with garbage, and on the first load the child receives `GetFilterVersion` twice.
-5. **A faulty new version leaves the filter inactive without warning**: the result of the renames is not checked and, if `LoadLibrary` fails, the `.bak` is not restored.
-6. **With only a `.run` (no `.upd`) the filter is never loaded**: `CanAccessDLL` tries to open the `.upd` even when it does not exist, so after restarting IIS, with the version already in `.run`, `ReloadDLL` loads nothing.
+3. **Uninitialised `pVer` when calling the child (filters)**: `ReloadDLL` uses a local variable with garbage, and on the first load the child receives `GetFilterVersion` twice. (Extensions do not have this problem: see "How it works internally".)
+4. **A faulty new version leaves the filter inactive without warning**: the result of the renames is not checked and, if `LoadLibrary` fails, the `.bak` is not restored.
 
 ### Improvements
 
