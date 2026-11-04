@@ -1,0 +1,78 @@
+### Windows
+# Windows thumbnail cache files
+Thumbs.db
+
+# Folder config file
+[Dd]esktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# Windows shortcuts
+*.lnk
+
+### Delphi
+# Compilados y unidades intermedias
+*.dcu
+*.dcp
+*.dpu
+*.bpi
+*.bpl
+*.obj
+*.o
+*.a
+*.lib
+*.exe
+*.dll
+*.so
+*.dylib
+*.ocx
+*.rsm
+*.tds
+*.map
+*.drc
+*.dres
+*.stat
+*.jdbg
+*.dsm
+*.apk
+*.ipa
+
+# El cargador compilado se versiona en bin\
+!bin/*.dll
+
+# Ficheros locales del IDE y copias de seguridad
+*.~*
+*.local
+*.identcache
+*.dsk
+*.tvsconfig
+*.projdata
+*.otares
+*.skincfg
+*.stat
+*.cfg.local
+*.dproj.local
+*.groupproj.local
+*.dsk
+*.bak
+*.tmp
+*.log
+__history/
+__recovered/
+ModelSupport_*/
+
+# Directorios de salida de compilacion
+Win32/
+Win64/
+OSX32/
+OSX64/
+Android/
+Android64/
+iOSDevice32/
+iOSDevice64/
+iOSSimulator/
+Linux64/
+Debug/
+Release/
+Tareas.md
