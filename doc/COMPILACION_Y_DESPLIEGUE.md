@@ -185,6 +185,10 @@ Para desplegar una versión nueva de tu DLL real:
 2. En la siguiente petición pasado el intervalo de comprobación (10 s en Release, 500 ms en Debug), el cargador espera a poder abrir el fichero en exclusiva (para no cargar uno a medio copiar), descarga la versión actual, renombra `.run` a `.bak` y `.upd` a `.run`, y la carga.
 3. Las peticiones que llegan mientras tanto esperan y las atiende la versión nueva.
 
+**La actualización la aplica una petición normal, no `/test`.** La comprobación del `.upd` se hace al principio de cada petición *normal* (cualquiera que no sea `/test` ni `/update`), y solo cuando ha pasado el intervalo de comprobación desde la anterior. `/test` la atiende el cargador antes de esa comprobación, así que llamar a `/test` **nunca aplica** un `.upd` pendiente: solo avisa de que hay uno esperando. Si nadie llama a la DLL, el `.upd` espera hasta que llegue la primera petición normal (y esa petición es la que paga los ~5 segundos de la actualización).
+
+Para aplicar un `.upd` pendiente de inmediato, sin esperar al intervalo ni a una petición normal, llama a **`/update`** desde el propio servidor (apartado «Peticiones especiales: `/test` y `/update`» más abajo).
+
 Para volver a la versión anterior, para el grupo, renombra `MiServicio.bak` a `MiServicio.upd` (o a `.run`) y arráncalo de nuevo.
 
 **Cómo se hace segura la descarga.** Descargar una DLL que tiene hilos propios (DMVCFramework, por ejemplo) puede provocar un interbloqueo de Windows: `FreeLibrary` toma el bloqueo del cargador de Windows mientras la DLL real se cierra, la DLL real espera a uno de sus hilos, y ese hilo, que está saliendo, necesita ese mismo bloqueo. Se vio en un volcado de `w3wp.exe`. Para evitarlo, el cargador, antes de llamar a `FreeLibrary`, llama al `TerminateExtension` de la DLL real y luego **espera hasta 3 segundos a que terminen solos los hilos que arrancaron dentro de la DLL real** (sin tener el bloqueo tomado, así que pueden salir). Solo si queda algún hilo vivo pasado ese tiempo lo termina a la fuerza, como último recurso. El log muestra líneas `uThreads: ...` con cuántos hilos quedaban y cuánto esperó.
@@ -225,6 +229,48 @@ Estado: la **parada** de IIS y la **actualización en caliente con IIS en marcha
 - [ ] Extensión: aplicación creada, permiso *Ejecutar* en la asignación de controlador y DLL permitida en *Restricciones ISAPI y CGI*. Filtro: agregado en *Filtros ISAPI* del sitio.
 - [ ] Tras la primera petición, el `.upd` se ha convertido en `.run` y, con Debug, el log muestra `GetExtensionVersion del hijo -> True`.
 - [ ] La actualización en caliente se ha probado en un servidor de pruebas antes de usarla en producción.
+
+## Peticiones especiales: `/test` y `/update`
+
+Cuando el cargador se usa como extensión, atiende él mismo dos peticiones especiales, **sin pasárselas a tu DLL real**. Las dos solo funcionan **desde el propio servidor** (127.0.0.1 o ::1); desde otro equipo devuelven 403.
+
+| Petición | Qué hace | ¿Aplica un `.upd` pendiente? |
+|---|---|---|
+| `…/MiServicio.dll/test` | Comprueba que IIS no sirve `.run`, `.upd` y `.bak`, e **informa de si hay un `.upd` pendiente** | **No** |
+| `…/MiServicio.dll/update` | Aplica el `.upd` ahora, si lo hay | **Sí**, sin esperar al intervalo |
+| cualquier otra petición | La atiende tu DLL real | Sí, si ha pasado el intervalo de comprobación |
+
+Se incluye una [colección de Postman](FilterLoader.postman_collection.json) con las tres peticiones: impórtala en Postman (*Import*), cambia la variable `baseUrl` por la URL de tu DLL y ejecuta Postman en el servidor.
+
+### `/update`: aplicar la actualización ahora
+
+```
+http://localhost/WebService/MiServicio.dll/update
+```
+
+Responde en texto plano con una línea `RESULTADO: ...` y un estado HTTP que puede aprovechar un script de despliegue:
+
+| Resultado | HTTP | Significado |
+|---|---|---|
+| `ACTUALIZADO` | 200 | Se aplicó el `.upd`; la versión nueva está cargada (indica cuántos ms tardó). |
+| `SIN ACTUALIZACION` | 200 | No hay `.upd`; no hay nada que hacer. |
+| `NO APLICADA` | 409 | El `.upd` sigue ahí: aún se está copiando o está abierto en otro programa. Vuelve a llamar a `/update` más tarde. |
+| `BLOQUEADA` | 409 | No se pudo renombrar, normalmente por falta de permiso de *Modificar* de la identidad del grupo sobre la carpeta (apartado 4.2). Se sigue con la versión actual. |
+
+Un despliegue típico es, por tanto: copiar el nuevo `MiServicio.upd`, llamar a `/update` y comprobar que responde `ACTUALIZADO`.
+
+### `/test`: autocomprobación y actualización pendiente
+
+Además de la comprobación de ficheros que se describe abajo, `/test` añade una línea que dice si hay una actualización pendiente:
+
+```
+Actualizacion pendiente: SI - existe MiServicio.upd (9341952 bytes, 2026-11-05 09:00:12).
+  /test NO aplica actualizaciones. Un .upd solo se aplica en la primera peticion normal
+  (que no sea /test ni /update) pasado el intervalo de comprobacion (10000 ms desde la anterior),
+  o llamando a /update.
+```
+
+o `Actualizacion pendiente: no (no existe MiServicio.upd).`
 
 ## Comprobar que IIS no sirve los ficheros `.run`, `.upd` y `.bak`
 

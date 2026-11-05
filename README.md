@@ -58,7 +58,7 @@ When a `.upd` appears, the loader does the following:
 
 ### Checking that IIS does not serve the files
 
-If you use the loader as an extension, open `http://localhost/…/MyService.dll/test` **from the server itself**. The loader creates three harmless probe files (`.run`, `.upd` and `.bak`), requests them from IIS over HTTP, deletes them and answers in plain text whether IIS does not serve them (good) or downloads them (danger). Details in the [manual](doc/BUILD_AND_DEPLOY.md).
+If you use the loader as an extension, open `http://localhost/…/MyService.dll/test` **from the server itself**. The loader creates three harmless probe files (`.run`, `.upd` and `.bak`), requests them from IIS over HTTP, deletes them and answers in plain text whether IIS does not serve them (good) or downloads them (danger). It also reports whether a `.upd` is waiting. **`/test` never applies an update**: a pending `.upd` is applied by the first *normal* request once the check interval has passed (10 s in Release, 500 ms in Debug), or immediately by calling `…/MyService.dll/update` from the server itself. A [Postman collection](doc/FilterLoader.postman_collection.json) with these requests is included. Details in the [manual](doc/BUILD_AND_DEPLOY.md).
 
 ## Repository layout
 
@@ -67,7 +67,8 @@ If you use the loader as an extension, open `http://localhost/…/MyService.dll/
 | [src/FilterLoader.dpr](src/FilterLoader.dpr) | `library` project. Exports the three ISAPI entry points and delegates to the loader, catching any exception. |
 | [src/uLoader.pas](src/uLoader.pas) | The `IFilterLoader` interface and the `TFilterLoader` class with all the reload logic. |
 | [src/uLog.pas](src/uLog.pas) | Debug log (only active in the Debug configuration). |
-| [src/uTest.pas](src/uTest.pas) | `/test` self-check: verifies that IIS does not serve `.run`, `.upd` and `.bak` files. |
+| [src/uTest.pas](src/uTest.pas) | `/test` self-check (IIS does not serve `.run`, `.upd` and `.bak`; reports a pending `.upd`) and `/update` (applies the `.upd` now). |
+| [doc/FilterLoader.postman_collection.json](doc/FilterLoader.postman_collection.json) | Postman collection with the normal request, `/test` and `/update`. |
 | `src/FilterLoader.dproj`, `.bdsproj`, `.res`, `.ico` | Delphi project files, resources and icon. |
 | [bin/FilterLoader.dll](bin/FilterLoader.dll) | Prebuilt DLL (32-bit). |
 | [doc/BUILD_AND_DEPLOY.md](doc/BUILD_AND_DEPLOY.md) | Build and IIS deployment manual ([Spanish version](doc/COMPILACION_Y_DESPLIEGUE.md)). |

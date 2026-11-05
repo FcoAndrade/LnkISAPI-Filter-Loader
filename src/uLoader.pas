@@ -150,6 +150,7 @@ type
     procedure ReloadDLL;
     procedure DoUpdateIfNeeded;
     procedure DoUpdateIfNeededNow;
+    function ForceUpdate: string;
     function CanAccessDLL: Boolean;
   public
     constructor Create;
@@ -253,6 +254,61 @@ begin
       Log('AVISO: el hilo de la peticion suplantaba a otro usuario; la comprobacion y la recarga se hacen con la identidad del proceso');
     end;
     DoUpdateIfNeededNow;
+  finally
+    RestoreIdentity(Tok);
+  end;
+end;
+
+// Peticion /update: aplica el .upd si existe sin esperar al intervalo de
+// comprobacion. Devuelve el texto del resultado (empieza por ACTUALIZADO,
+// SIN ACTUALIZACION, BLOQUEADA o NO APLICADA).
+function TFilterLoader.ForceUpdate: string;
+var
+  Tok: THandle;
+  T0: DWORD;
+  Ready: Boolean;
+  Name: string;
+begin
+  Name := ExtractFileName(FUpdateDLLName);
+  Tok := RevertToProcessIdentity;
+  try
+    if not FileExists(FUpdateDLLName) then
+    begin
+      Result := Format('SIN ACTUALIZACION - no existe %s, no hay nada que aplicar.', [Name]);
+      Exit;
+    end;
+
+    T0 := GetTickCount;
+    // Hace que la comprobacion de DoUpdateIfNeededNow no espere al intervalo
+    FCheckSync.BeginWrite;
+    try
+      FLastTimeCheck := 0;
+    finally
+      FCheckSync.EndWrite;
+    end;
+    DoUpdateIfNeededNow;
+
+    FDLLSync.BeginRead;
+    try
+      Ready := FExtReady;
+    finally
+      FDLLSync.EndRead;
+    end;
+
+    if not FileExists(FUpdateDLLName) then
+    begin
+      Result := Format('ACTUALIZADO - %s aplicado en %d ms. ', [Name, GetTickCount - T0]);
+      if Ready then
+        Result := Result + 'La nueva version esta cargada y lista.'
+      else
+        Result := Result + 'ATENCION: la nueva version no se pudo inicializar; ver el log (compilacion Debug).';
+    end
+    else if (FBlockedUpdateStamp <> 0) and (FileStamp(FUpdateDLLName) = FBlockedUpdateStamp) then
+      Result := Format('BLOQUEADA - no se pudo renombrar %s (suele ser falta de permiso de Modificar ' +
+        'para la identidad del grupo de aplicaciones en la carpeta). Se sigue con la version actual.', [Name])
+    else
+      Result := Format('NO APLICADA - %s sigue ahi: puede estar copiandose todavia o abierto por ' +
+        'otro programa. Vuelve a llamar a /update cuando termine.', [Name]);
   finally
     RestoreIdentity(Tok);
   end;
@@ -515,11 +571,20 @@ function TFilterLoader.HttpExtensionProc(pECB: Pointer): DWORD;
 var
   T0: DWORD;
 begin
-  // Autocomprobacion del propio cargador (<dll>/test): no se pasa al hijo
+  // Autocomprobacion del propio cargador (<dll>/test): no se pasa al hijo.
+  // Se atiende ANTES de DoUpdateIfNeeded: /test no aplica actualizaciones.
   if IsTestRequest(PEXTENSION_CONTROL_BLOCK(pECB)) then
   begin
-    Log('HttpExtensionProc: peticion /test, la atiende el cargador');
-    Result := RunTest(PEXTENSION_CONTROL_BLOCK(pECB), GetModuleName);
+    Log('HttpExtensionProc: peticion /test, la atiende el cargador (no aplica actualizaciones)');
+    Result := RunTest(PEXTENSION_CONTROL_BLOCK(pECB), GetModuleName, WAIT_BEFORE_CHECK);
+    Exit;
+  end;
+  // Actualizacion bajo demanda (<dll>/update): aplica el .upd si existe, sin
+  // esperar al intervalo de comprobacion. Tampoco se pasa al hijo.
+  if IsUpdateRequest(PEXTENSION_CONTROL_BLOCK(pECB)) then
+  begin
+    Log('HttpExtensionProc: peticion /update, la atiende el cargador');
+    Result := RunUpdate(PEXTENSION_CONTROL_BLOCK(pECB), GetModuleName, ForceUpdate);
     Exit;
   end;
   DoUpdateIfNeeded;

@@ -22,20 +22,36 @@ uses
   ISAPI2,
   Windows;
 
+type
+  // Aplica la actualizacion pendiente (si la hay) sin esperar al intervalo de
+  // comprobacion y devuelve el texto del resultado, que empieza por ACTUALIZADO,
+  // SIN ACTUALIZACION, BLOQUEADA o NO APLICADA.
+  TForceUpdateEvent = function: string of object;
+
 // True si la peticion es la de autocomprobacion (PATH_INFO = /test)
 function IsTestRequest(pECB: PEXTENSION_CONTROL_BLOCK): Boolean;
 // Ejecuta la comprobacion y responde a IIS. Devuelve el resultado de HttpExtensionProc.
-function RunTest(pECB: PEXTENSION_CONTROL_BLOCK; const ModuleFile: string): DWORD;
+// Ademas informa de si hay una actualizacion (.upd) pendiente; /test NO la aplica.
+function RunTest(pECB: PEXTENSION_CONTROL_BLOCK; const ModuleFile: string;
+  CheckIntervalMs: DWORD): DWORD;
+
+// True si la peticion es la de actualizacion bajo demanda (PATH_INFO = /update)
+function IsUpdateRequest(pECB: PEXTENSION_CONTROL_BLOCK): Boolean;
+// Aplica el .upd si existe (sin esperar al intervalo) y responde a IIS en texto plano.
+function RunUpdate(pECB: PEXTENSION_CONTROL_BLOCK; const ModuleFile: string;
+  ForceUpdate: TForceUpdateEvent): DWORD;
 
 implementation
 
 uses
   Classes,
   SysUtils,
+  uIdentity,
   uLog;
 
 const
   TEST_PATH = '/test';
+  UPDATE_PATH = '/update';
   PROBE_EXTS: array[0..2] of string = ('.run', '.upd', '.bak');
 
   HSE_STATUS_OK = 1;     // HSE_STATUS_SUCCESS
@@ -86,10 +102,27 @@ begin
     Result := string(AnsiString(PAnsiChar(@Buf)));
 end;
 
-function IsTestRequest(pECB: PEXTENSION_CONTROL_BLOCK): Boolean;
+function PathInfoIs(pECB: PEXTENSION_CONTROL_BLOCK; const Path: string): Boolean;
 begin
   Result := (pECB <> nil) and (pECB^.lpszPathInfo <> nil) and
-    SameText(string(AnsiString(PAnsiChar(pECB^.lpszPathInfo))), TEST_PATH);
+    SameText(string(AnsiString(PAnsiChar(pECB^.lpszPathInfo))), Path);
+end;
+
+function IsTestRequest(pECB: PEXTENSION_CONTROL_BLOCK): Boolean;
+begin
+  Result := PathInfoIs(pECB, TEST_PATH);
+end;
+
+function IsUpdateRequest(pECB: PEXTENSION_CONTROL_BLOCK): Boolean;
+begin
+  Result := PathInfoIs(pECB, UPDATE_PATH);
+end;
+
+// Las peticiones especiales solo se atienden desde el propio servidor
+function IsLocalRequest(pECB: PEXTENSION_CONTROL_BLOCK; out Remote: string): Boolean;
+begin
+  Remote := ServerVar(pECB, 'REMOTE_ADDR');
+  Result := (Remote = '127.0.0.1') or (Remote = '::1');
 end;
 
 function SendText(pECB: PEXTENSION_CONTROL_BLOCK; const Status, Text: string): DWORD;
@@ -198,7 +231,42 @@ begin
   end;
 end;
 
-function RunTest(pECB: PEXTENSION_CONTROL_BLOCK; const ModuleFile: string): DWORD;
+// Texto sobre si hay un .upd esperando. No cambia nada: solo informa.
+function PendingUpdateText(const ModuleFile: string; CheckIntervalMs: DWORD): string;
+var
+  UpdFile, UpdName: string;
+  SR: TSearchRec;
+  Tok: THandle;
+  Found: Boolean;
+begin
+  UpdFile := ChangeFileExt(ModuleFile, '.upd');
+  UpdName := ExtractFileName(UpdFile);
+  Found := False;
+  Result := '';
+  // Los hilos de peticion suplantan a otro usuario: se mira con la identidad del proceso
+  Tok := RevertToProcessIdentity;
+  try
+    if FindFirst(UpdFile, faAnyFile, SR) = 0 then
+    try
+      Found := True;
+      Result := Format('Actualizacion pendiente: SI - existe %s (%d bytes, %s).',
+        [UpdName, SR.Size, FormatDateTime('yyyy-mm-dd hh:nn:ss', SR.TimeStamp)]);
+    finally
+      FindClose(SR);
+    end;
+  finally
+    RestoreIdentity(Tok);
+  end;
+  if not Found then
+    Result := Format('Actualizacion pendiente: no (no existe %s).', [UpdName]);
+  Result := Result + #13#10 +
+    '  /test NO aplica actualizaciones. Un .upd solo se aplica en la primera peticion normal' + #13#10 +
+    Format('  (que no sea /test ni /update) pasado el intervalo de comprobacion (%d ms desde la anterior),', [CheckIntervalMs]) + #13#10 +
+    '  o llamando a /update.';
+end;
+
+function RunTest(pECB: PEXTENSION_CONTROL_BLOCK; const ModuleFile: string;
+  CheckIntervalMs: DWORD): DWORD;
 var
   Remote, ScriptName, HostHdr, Host, FolderUrl, Id, Token, FileName, Url, Body, Err: string;
   Port: Word;
@@ -208,8 +276,7 @@ var
   Dangerous, Failed: Boolean;
   SchemeName: string;
 begin
-  Remote := ServerVar(pECB, 'REMOTE_ADDR');
-  if (Remote <> '127.0.0.1') and (Remote <> '::1') then
+  if not IsLocalRequest(pECB, Remote) then
   begin
     Log('Test: rechazado, la peticion no viene del propio servidor (REMOTE_ADDR=%s)', [Remote]);
     Result := SendText(pECB, '403 Forbidden', 'La comprobacion /test solo esta disponible desde el propio servidor.'#13#10);
@@ -285,6 +352,8 @@ begin
         Lines.Add(Format('%s: correcto - IIS no lo sirve (HTTP %d).', [PROBE_EXTS[I], Code]));
     end;
     Lines.Add('');
+    Lines.Add(PendingUpdateText(ModuleFile, CheckIntervalMs));
+    Lines.Add('');
     if Dangerous then
       Lines.Add('RESULTADO: INSEGURO - quita el tipo MIME o el manejador que sirve esas extensiones en esta carpeta.')
     else if Failed then
@@ -296,6 +365,37 @@ begin
   finally
     Lines.Free;
   end;
+end;
+
+function RunUpdate(pECB: PEXTENSION_CONTROL_BLOCK; const ModuleFile: string;
+  ForceUpdate: TForceUpdateEvent): DWORD;
+var
+  Remote, Res, Status: string;
+begin
+  if not IsLocalRequest(pECB, Remote) then
+  begin
+    Log('Update: rechazado, la peticion no viene del propio servidor (REMOTE_ADDR=%s)', [Remote]);
+    Result := SendText(pECB, '403 Forbidden', 'La actualizacion /update solo esta disponible desde el propio servidor.'#13#10);
+    Exit;
+  end;
+
+  try
+    Res := ForceUpdate();
+  except
+    LogException('RunUpdate');
+    Res := 'ERROR - fallo inesperado al actualizar; ver el log (compilacion Debug).';
+  end;
+  Log('Update: %s', [Res]);
+
+  // 200 si no hay nada pendiente o se aplico; 409 si hay un .upd que no se pudo aplicar
+  if (Pos('ACTUALIZADO', Res) = 1) or (Pos('SIN ACTUALIZACION', Res) = 1) then
+    Status := '200 OK'
+  else
+    Status := '409 Conflict';
+  Result := SendText(pECB, Status,
+    'FilterLoader - actualizacion bajo demanda'#13#10 +
+    'DLL: ' + ModuleFile + #13#10#13#10 +
+    'RESULTADO: ' + Res + #13#10);
 end;
 
 end.

@@ -1,0 +1,124 @@
+{
+	"info": {
+		"_postman_id": "6f1d3b3e-4c0a-4d6b-9a52-2b6f0f5c8a11",
+		"name": "FilterLoader - peticiones especiales / special requests",
+		"description": "ES: Peticiones para probar el cargador ISAPI (LnkISAPI-Filter-Loader) cuando se usa como extension. Cambia la variable `baseUrl` por la URL de tu DLL (sin barra final), p. ej. http://localhost/WebService/MiServicio.dll\n\nIMPORTANTE: `/test` y `/update` solo responden a peticiones que llegan DESDE EL PROPIO SERVIDOR (127.0.0.1 o ::1); desde otro equipo devuelven 403. Ejecuta Postman en el servidor.\n\n`/test` y `/update` las atiende el propio cargador y no llegan a tu DLL real. Un .upd pendiente NO se aplica con `/test`: se aplica en la primera peticion normal (la 1 de esta coleccion) pasado el intervalo de comprobacion (10 s en Release, 500 ms en Debug), o llamando a `/update`.\n\nEN: Requests to exercise the ISAPI loader when used as an extension. Change the `baseUrl` variable to your DLL URL (no trailing slash). `/test` and `/update` only answer requests coming FROM THE SERVER ITSELF (127.0.0.1 or ::1); from another machine they return 403, so run Postman on the server. They are served by the loader itself and never reach your real DLL. A pending .upd is NOT applied by `/test`: it is applied by the first normal request (number 1 in this collection) once the check interval has passed (10 s in Release, 500 ms in Debug), or by calling `/update`.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1 - Peticion normal / Normal request (aplica el .upd si toca)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('Responde sin error del servidor / No server error', function () {",
+							"    pm.expect(pm.response.code).to.be.below(500);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/{{normalEndpoint}}",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"{{normalEndpoint}}"
+					]
+				},
+				"description": "ES: Peticion normal: la atiende tu DLL real. Antes de pasarsela, el cargador comprueba si hay un .upd y, si han pasado el intervalo de comprobacion (10 s en Release, 500 ms en Debug) desde la ultima vez, lo aplica. Si hay actualizacion, esta peticion tarda unos 5 s. Cambia la variable `normalEndpoint` por un endpoint que exista en tu servicio.\n\nEN: Normal request, served by your real DLL. Before passing it on, the loader checks for a .upd and, if the check interval has passed since the last check (10 s in Release, 500 ms in Debug), applies it. When there is an update this request takes about 5 s. Set the `normalEndpoint` variable to an endpoint that exists in your service."
+			},
+			"response": []
+		},
+		{
+			"name": "2 - /test (autocomprobacion e informe de actualizacion pendiente)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('Estado 200 / Status 200', function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('IIS no sirve .run/.upd/.bak / IIS does not serve them', function () {",
+							"    pm.expect(pm.response.text()).to.include('RESULTADO: CORRECTO');",
+							"});",
+							"pm.test('Informa de la actualizacion pendiente / Reports pending update', function () {",
+							"    pm.expect(pm.response.text()).to.match(/Actualizacion pendiente: (SI|no)/);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/test",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"test"
+					]
+				},
+				"description": "ES: Autocomprobacion del cargador. Crea tres ficheros de prueba (.run, .upd, .bak), comprueba que IIS NO los sirve y los borra. Ademas informa de si existe un .upd pendiente de aplicar. IMPORTANTE: /test NO aplica la actualizacion; un .upd solo se aplica en la primera peticion normal pasado el intervalo de comprobacion, o con /update. Solo desde el propio servidor.\n\nEN: Loader self-check. Creates three probe files (.run, .upd, .bak), checks that IIS does NOT serve them, and deletes them. It also reports whether a .upd is pending. IMPORTANT: /test does NOT apply the update; a .upd is only applied by the first normal request after the check interval, or by /update. From the server itself only."
+			},
+			"response": []
+		},
+		{
+			"name": "3 - /update (aplicar el .upd ahora si existe)",
+			"event": [
+				{
+					"listen": "test",
+					"script": {
+						"type": "text/javascript",
+						"exec": [
+							"pm.test('Estado 200 (aplicado o nada pendiente) / Status 200 (applied or nothing pending)', function () {",
+							"    pm.response.to.have.status(200);",
+							"});",
+							"pm.test('Resultado reconocible / Recognisable result', function () {",
+							"    pm.expect(pm.response.text()).to.match(/RESULTADO: (ACTUALIZADO|SIN ACTUALIZACION)/);",
+							"});"
+						]
+					}
+				}
+			],
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "{{baseUrl}}/update",
+					"host": [
+						"{{baseUrl}}"
+					],
+					"path": [
+						"update"
+					]
+				},
+				"description": "ES: Aplica el .upd AHORA si existe, sin esperar al intervalo de comprobacion ni a una peticion normal. Responde en texto plano con una linea 'RESULTADO: ...': ACTUALIZADO (200), SIN ACTUALIZACION (200, no hay .upd), NO APLICADA (409, el .upd sigue ahi: se esta copiando o esta abierto) o BLOQUEADA (409, falta permiso de Modificar sobre la carpeta). Puede tardar unos 5 s si hay actualizacion. Solo desde el propio servidor.\n\nEN: Applies the .upd NOW if it exists, without waiting for the check interval or a normal request. Plain-text answer with a 'RESULTADO: ...' line: ACTUALIZADO (200), SIN ACTUALIZACION (200, no .upd), NO APLICADA (409, the .upd is still there: being copied or open) or BLOQUEADA (409, missing Modify permission on the folder). May take about 5 s when there is an update. From the server itself only."
+			},
+			"response": []
+		}
+	],
+	"variable": [
+		{
+			"key": "baseUrl",
+			"value": "http://localhost/WebService/LnkWebService.dll",
+			"type": "string"
+		},
+		{
+			"key": "normalEndpoint",
+			"value": "estado",
+			"type": "string"
+		}
+	]
+}

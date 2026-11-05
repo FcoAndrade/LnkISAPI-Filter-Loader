@@ -185,6 +185,10 @@ To deploy a new version of your real DLL:
 2. On the next request after the check interval (10 s in Release, 500 ms in Debug), the loader waits until it can open the file exclusively (so it does not load a half-copied file), unloads the current version, renames `.run` to `.bak` and `.upd` to `.run`, and loads it.
 3. Requests that arrive meanwhile wait and are served by the new version.
 
+**The update is applied by a normal request, not by `/test`.** The check for a `.upd` is made at the start of every *normal* request (any request that is not `/test` or `/update`), and only once the check interval has passed since the previous check. `/test` is answered by the loader before that check, so calling `/test` **never applies** a pending `.upd`; it only reports that one is waiting. If nobody calls the DLL, the `.upd` waits until the first normal request arrives (and that request is the one that pays the ~5 seconds of the update).
+
+To apply a pending `.upd` right away, without waiting for the interval or for a normal request, call **`/update`** from the server itself (section "Special requests: `/test` and `/update`" below).
+
 To go back to the previous version, stop the pool, rename `MyService.bak` to `MyService.upd` (or to `.run`) and start it again.
 
 **How the unload is made safe.** Unloading a DLL that has its own threads (DMVCFramework, for example) can deadlock Windows: `FreeLibrary` takes the Windows loader lock while the real DLL shuts down, the real DLL waits for one of its threads, and that thread, which is exiting, needs that same lock. This was seen in a dump of `w3wp.exe`. To avoid it the loader, before calling `FreeLibrary`, calls the real DLL's `TerminateExtension` and then **waits up to 3 seconds for the threads that started inside the real DLL to finish on their own** (without holding the lock, so they can). Only if some thread is still alive after that does it terminate it by force, as a last resort. The log shows `uThreads: ...` lines with how many threads were left and how long it waited.
@@ -225,6 +229,48 @@ Status: the **shutdown** of IIS and the **live update with IIS running** were ve
 - [ ] Extension: application created, *Execute* permission on the handler mapping, DLL allowed in *ISAPI and CGI Restrictions*. Filter: added in *ISAPI Filters* of the site.
 - [ ] After the first request, `.upd` has become `.run` and, with Debug, the log shows `GetExtensionVersion del hijo -> True`.
 - [ ] The hot update has been tried on a test server before using it in production.
+
+## Special requests: `/test` and `/update`
+
+When the loader is used as an extension it answers two special requests itself, **without passing them to your real DLL**. Both only work **from the server itself** (127.0.0.1 or ::1); from another machine they return 403.
+
+| Request | What it does | Applies a pending `.upd`? |
+|---|---|---|
+| `…/MyService.dll/test` | Checks that IIS does not serve `.run`, `.upd` and `.bak`, and **reports whether a `.upd` is pending** | **No** |
+| `…/MyService.dll/update` | Applies the `.upd` now, if there is one | **Yes**, without waiting for the interval |
+| any other request | Is served by your real DLL | Yes, if the check interval has passed |
+
+A [Postman collection](FilterLoader.postman_collection.json) with the three requests is included: import it in Postman (*Import*), change the `baseUrl` variable to your DLL's URL, and run Postman on the server.
+
+### `/update`: apply the update now
+
+```
+http://localhost/WebService/MyService.dll/update
+```
+
+It answers in plain text with a line `RESULTADO: ...` and an HTTP status that a deployment script can use:
+
+| Result | HTTP | Meaning |
+|---|---|---|
+| `ACTUALIZADO` | 200 | The `.upd` was applied; the new version is loaded (it says how many ms it took). |
+| `SIN ACTUALIZACION` | 200 | There is no `.upd`; nothing to do. |
+| `NO APLICADA` | 409 | The `.upd` is still there: it is still being copied or is open in another program. Call `/update` again later. |
+| `BLOQUEADA` | 409 | It could not be renamed, usually missing *Modify* permission for the pool identity on the folder (section 4.2). The current version keeps running. |
+
+A typical deployment is therefore: copy the new `MyService.upd`, then call `/update` and check for `ACTUALIZADO`.
+
+### `/test`: self-check and pending update
+
+Besides the file check described below, `/test` adds a line saying whether there is a pending update:
+
+```
+Actualizacion pendiente: SI - existe MyService.upd (9341952 bytes, 2026-11-05 09:00:12).
+  /test NO aplica actualizaciones. Un .upd solo se aplica en la primera peticion normal
+  (que no sea /test ni /update) pasado el intervalo de comprobacion (10000 ms desde la anterior),
+  o llamando a /update.
+```
+
+or `Actualizacion pendiente: no (no existe MyService.upd).` The messages are written in Spanish.
 
 ## Checking that IIS does not serve the `.run`, `.upd` and `.bak` files
 
