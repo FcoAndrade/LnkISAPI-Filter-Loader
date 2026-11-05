@@ -221,3 +221,13 @@ Para volver a la versión anterior, para el grupo, renombra `MiServicio.bak` a `
 - [ ] Extensión: aplicación creada, permiso *Ejecutar* en la asignación de controlador y DLL permitida en *Restricciones ISAPI y CGI*. Filtro: agregado en *Filtros ISAPI* del sitio.
 - [ ] Tras la primera petición, el `.upd` se ha convertido en `.run` y, con Debug, el log muestra `GetExtensionVersion del hijo -> True`.
 - [ ] La actualización en caliente se ha probado en un servidor de pruebas antes de usarla en producción.
+
+## Comprobar que IIS no sirve los ficheros `.run`, `.upd` y `.bak`
+
+Si el cargador se usa como extensión, llámalo con `/test` **desde el propio servidor**:
+
+```
+http://localhost/WebService/MiServicio.dll/test
+```
+
+El cargador crea en la carpeta tres ficheros de prueba inofensivos (`__probe_<id>.run`, `.upd` y `.bak`), los pide a IIS por HTTP, los borra y responde en texto plano. Por cada extensión indica si IIS no la sirve (correcto), si la **descarga** (peligro: hay un tipo MIME o manejador que la sirve) o si no se pudo comprobar. La petición no llega a la DLL hija, y las que no vienen de 127.0.0.1 o ::1 reciben 403. No se usa la DLL real.

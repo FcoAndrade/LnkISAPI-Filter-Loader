@@ -3,7 +3,7 @@
         <ProjectGuid>{D969198F-DC09-43D4-96C7-0DF1BFB89C3D}</ProjectGuid>
         <MainSource>FilterLoader.dpr</MainSource>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Config Condition="'$(Config)'==''">Release</Config>
         <TargetedPlatforms>1</TargetedPlatforms>
         <AppType>Library</AppType>
         <FrameworkType>None</FrameworkType>

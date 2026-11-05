@@ -56,6 +56,10 @@ Cuando aparece un `.upd`, el cargador hace esto:
 5. En la siguiente petición, el cargador lo activará. **La identidad del grupo de aplicaciones (`IIS AppPool\<nombre del grupo>`) necesita permiso de *Modificar* en esa carpeta**, porque el cargador renombra y borra ficheros ahí. Sin él, los renombrados fallan con «Acceso denegado» (error 5); el cargador sigue entonces con el `.run` actual, lo anota una vez en el log e ignora ese `.upd` hasta que cambie.
 6. Para cada versión nueva, copia otra vez un `MiFiltro.upd`.
 
+### Comprobar que IIS no sirve los ficheros
+
+Si usas el cargador como extensión, abre `http://localhost/…/MiServicio.dll/test` **desde el propio servidor**. El cargador crea tres ficheros de prueba inofensivos (`.run`, `.upd` y `.bak`), los pide a IIS por HTTP, los borra y responde en texto plano si IIS no los sirve (correcto) o los descarga (peligro). Detalles en el [manual](doc/COMPILACION_Y_DESPLIEGUE.md).
+
 ## Estructura del repositorio
 
 | Ruta | Contenido |
@@ -63,6 +67,7 @@ Cuando aparece un `.upd`, el cargador hace esto:
 | [src/FilterLoader.dpr](src/FilterLoader.dpr) | Proyecto `library`. Exporta los tres puntos de entrada ISAPI y delega en el cargador, capturando cualquier excepción. |
 | [src/uLoader.pas](src/uLoader.pas) | Interfaz `IFilterLoader` y clase `TFilterLoader` con toda la lógica de recarga. |
 | [src/uLog.pas](src/uLog.pas) | Log de depuración (solo activo en la configuración Debug). |
+| [src/uTest.pas](src/uTest.pas) | Autocomprobación `/test`: comprueba que IIS no sirve los `.run`, `.upd` y `.bak`. |
 | `src/FilterLoader.dproj`, `.bdsproj`, `.res`, `.ico` | Ficheros de proyecto de Delphi, recursos e icono. |
 | [bin/FilterLoader.dll](bin/FilterLoader.dll) | DLL ya compilada (32 bits). |
 | [doc/COMPILACION_Y_DESPLIEGUE.md](doc/COMPILACION_Y_DESPLIEGUE.md) | Manual de compilación y despliegue en IIS ([versión en inglés](doc/BUILD_AND_DEPLOY.md)). |

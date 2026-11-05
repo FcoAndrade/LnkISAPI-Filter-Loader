@@ -60,7 +60,8 @@ implementation
 
 uses
   Classes,
-  uLog;
+  uLog,
+  uTest;
 
 function GetLongPathNameW(lpszShortPath: PWideChar; lpszLongPath: PWideChar; cchBuffer: DWORD): DWORD; stdcall; external kernel32 name 'GetLongPathNameW';
 
@@ -474,6 +475,13 @@ function TFilterLoader.HttpExtensionProc(pECB: Pointer): DWORD;
 var
   T0: DWORD;
 begin
+  // Autocomprobacion del propio cargador (<dll>/test): no se pasa al hijo
+  if IsTestRequest(PEXTENSION_CONTROL_BLOCK(pECB)) then
+  begin
+    Log('HttpExtensionProc: peticion /test, la atiende el cargador');
+    Result := RunTest(PEXTENSION_CONTROL_BLOCK(pECB), GetModuleName);
+    Exit;
+  end;
   DoUpdateIfNeeded;
   FDLLSync.BeginRead;
   try

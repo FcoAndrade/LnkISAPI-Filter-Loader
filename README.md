@@ -56,6 +56,10 @@ When a `.upd` appears, the loader does the following:
 5. On the next request the loader activates it. **The application pool identity (`IIS AppPool\<pool name>`) needs *Modify* permission on that folder**, because the loader renames and deletes files there. Without it the renames fail with "Access denied" (error 5); the loader then keeps running the current `.run`, logs the problem once and ignores that `.upd` until it changes.
 6. For every new version, copy another `MyFilter.upd`.
 
+### Checking that IIS does not serve the files
+
+If you use the loader as an extension, open `http://localhost/…/MyService.dll/test` **from the server itself**. The loader creates three harmless probe files (`.run`, `.upd` and `.bak`), requests them from IIS over HTTP, deletes them and answers in plain text whether IIS does not serve them (good) or downloads them (danger). Details in the [manual](doc/BUILD_AND_DEPLOY.md).
+
 ## Repository layout
 
 | Path | Contents |
@@ -63,6 +67,7 @@ When a `.upd` appears, the loader does the following:
 | [src/FilterLoader.dpr](src/FilterLoader.dpr) | `library` project. Exports the three ISAPI entry points and delegates to the loader, catching any exception. |
 | [src/uLoader.pas](src/uLoader.pas) | The `IFilterLoader` interface and the `TFilterLoader` class with all the reload logic. |
 | [src/uLog.pas](src/uLog.pas) | Debug log (only active in the Debug configuration). |
+| [src/uTest.pas](src/uTest.pas) | `/test` self-check: verifies that IIS does not serve `.run`, `.upd` and `.bak` files. |
 | `src/FilterLoader.dproj`, `.bdsproj`, `.res`, `.ico` | Delphi project files, resources and icon. |
 | [bin/FilterLoader.dll](bin/FilterLoader.dll) | Prebuilt DLL (32-bit). |
 | [doc/BUILD_AND_DEPLOY.md](doc/BUILD_AND_DEPLOY.md) | Build and IIS deployment manual ([Spanish version](doc/COMPILACION_Y_DESPLIEGUE.md)). |

@@ -221,3 +221,13 @@ To go back to the previous version, stop the pool, rename `MyService.bak` to `My
 - [ ] Extension: application created, *Execute* permission on the handler mapping, DLL allowed in *ISAPI and CGI Restrictions*. Filter: added in *ISAPI Filters* of the site.
 - [ ] After the first request, `.upd` has become `.run` and, with Debug, the log shows `GetExtensionVersion del hijo -> True`.
 - [ ] The hot update has been tried on a test server before using it in production.
+
+## Checking that IIS does not serve the `.run`, `.upd` and `.bak` files
+
+When the loader is used as an extension, call it with `/test` **from the server itself**:
+
+```
+http://localhost/WebService/MyService.dll/test
+```
+
+The loader creates three harmless probe files in the folder (`__probe_<id>.run`, `.upd` and `.bak`), requests them from IIS over HTTP, deletes them and answers in plain text. For each extension it reports whether IIS does not serve it (good), **downloads** it (danger: a MIME type or handler serves it) or whether it could not be checked. The request never reaches the child DLL, and requests not coming from 127.0.0.1 or ::1 get a 403. The real DLL is not used.
