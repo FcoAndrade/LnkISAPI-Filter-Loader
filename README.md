@@ -142,6 +142,18 @@ Anyone who can write to the filter folder can run code inside `w3wp.exe` by drop
 
 Original code by Daniel "sakura" Wischnewski (August 25th, 2006), published under the **GNU Lesser General Public License** version 2.1 or later. See http://www.gnu.org/copyleft/lgpl.html.
 
+### About the original author
+
+Daniel "sakura" Wischnewski is a Delphi developer based in Munich, Germany. Between April 2005 and September 2007 he wrote the blog [Delphi Developer Notes](https://delphi-notes.blogspot.com/), where, in his own words, he reflected on "my experiences, adventures and my love to Delphi and the Borland Developer Studio". The blog covers BDS 2006, Win32 Delphi, C#, the VCL, action manager components and the Turbo editions, among other topics. In it he mentions giving sessions at EKON 10 (Frankfurt, 2006), publishing a sample on Borland CodeCentral about building action-based main menus in code (for Delphi 2006 and C++Builder 2006), and a "Community Welcome Page" of his. He closed the blog on 24 September 2007 and moved to a new one at http://www.gumpi.com/.
+
+He also started a short blog in July 2006, [Project Hydra :: Content ACE v5](https://project-hydra.blogspot.com/), about the next version of the Content ACE web content management system. The version information in the original files of this project also mentioned Content ACE (gate(n)etwork GmbH); his blogs do not state what his role there was, nor any link between that product and this tool. His [Blogger profile](https://www.blogger.com/profile/13541149824714377940) lists karate, iaido, sailing, mountain biking and Delphi among his interests.
+
+The ISAPI Filter Loader dates from that period: the header of the source code is dated August 25th, 2006. This repository preserves it and has extended it since (extension support, debug log, fixes and manuals); those later changes are not the work of the original author. His job and employer are not stated on his pages, so they are not mentioned here.
+
+## Acknowledgements
+
+Many thanks to **Daniel "sakura" Wischnewski** for creating the ISAPI Filter Loader and for sharing it as open source under the LGPL. His idea of letting IIS keep a stable DLL while the real filter is swapped on the fly, and the clean way he wrote it, are the foundation of everything in this repository. Thank you for your work and for making it available to the Delphi community.
+
 ## Web
 
 http://delphi-notes.blogspot.com/
