@@ -3,7 +3,7 @@
         <ProjectGuid>{D969198F-DC09-43D4-96C7-0DF1BFB89C3D}</ProjectGuid>
         <MainSource>FilterLoader.dpr</MainSource>
         <Base>True</Base>
-        <Config Condition="'$(Config)'==''">Release</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <TargetedPlatforms>1</TargetedPlatforms>
         <AppType>Library</AppType>
         <FrameworkType>None</FrameworkType>
@@ -116,7 +116,9 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="uIdentity.pas"/>
         <DCCReference Include="uLog.pas"/>
+        <DCCReference Include="uThreads.pas"/>
         <DCCReference Include="uLoader.pas"/>
         <BuildConfiguration Include="Debug">
             <Key>Cfg_2</Key>

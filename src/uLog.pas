@@ -33,7 +33,8 @@ implementation
 
 uses
   Windows,
-  SysUtils;
+  SysUtils,
+  uIdentity;
 
 const
   MAX_LOG_SIZE = 2 * 1024 * 1024;
@@ -109,6 +110,7 @@ end;
 procedure Log(const Msg: string);
 var
   Line: string;
+  Tok: THandle;
 begin
   try
     Line := Format('%s [%d:%d] %s',
@@ -116,12 +118,19 @@ begin
        GetCurrentProcessId, GetCurrentThreadId, Msg]);
     EnterCriticalSection(GLock);
     try
-      if not GLogReady then
-      begin
-        GLogFile := LogFileName;
-        GLogReady := True;
+      // Los hilos de peticion de IIS suplantan a otro usuario, que no puede
+      // escribir en la carpeta: se escribe con la identidad del proceso.
+      Tok := RevertToProcessIdentity;
+      try
+        if not GLogReady then
+        begin
+          GLogFile := LogFileName;
+          GLogReady := True;
+        end;
+        WriteToFile(Line);
+      finally
+        RestoreIdentity(Tok);
       end;
-      WriteToFile(Line);
     finally
       LeaveCriticalSection(GLock);
     end;

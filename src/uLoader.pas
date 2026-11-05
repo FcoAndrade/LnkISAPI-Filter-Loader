@@ -61,7 +61,14 @@ implementation
 uses
   Classes,
   uLog,
-  uTest;
+  uTest,
+  uThreads,
+  uIdentity;
+
+const
+  // Tiempo que se espera a que los hilos del hijo terminen solos antes de
+  // descargarlo; pasado ese tiempo se terminan a la fuerza.
+  CHILD_THREADS_WAIT_MS = 3000;
 
 function GetLongPathNameW(lpszShortPath: PWideChar; lpszLongPath: PWideChar; cchBuffer: DWORD): DWORD; stdcall; external kernel32 name 'GetLongPathNameW';
 
@@ -136,11 +143,13 @@ type
     // Fecha del .upd cuya aplicacion fallo (p. ej. por permisos); 0 = ninguno.
     // Mientras el .upd no cambie no se vuelve a intentar ni a descargar el hijo.
     FBlockedUpdateStamp: TDateTime;
+    FImpersonationLogged: Boolean;
     FExtVerInfo: array[0..EXT_VERSION_INFO_SIZE - 1] of Byte;
     FBackupDLLName, FRunDLLName, FUpdateDLLName: string;
     FFilterFlags: DWord;
     procedure ReloadDLL;
     procedure DoUpdateIfNeeded;
+    procedure DoUpdateIfNeededNow;
     function CanAccessDLL: Boolean;
   public
     constructor Create;
@@ -227,7 +236,29 @@ begin
   inherited Destroy;
 end;
 
+// IIS ejecuta HttpExtensionProc en hilos que suplantan a otro usuario (p. ej.
+// IUSR), sin permiso para renombrar los ficheros, escribir el log ni abrir los
+// hilos del hijo; todo eso fallaba en silencio. La comprobacion y la recarga se
+// hacen con la identidad del proceso (la del grupo de aplicaciones) y despues se
+// devuelve al hilo la suplantacion que tenia, para no alterar al hijo ni a IIS.
 procedure TFilterLoader.DoUpdateIfNeeded;
+var
+  Tok: THandle;
+begin
+  Tok := RevertToProcessIdentity;
+  try
+    if (Tok <> 0) and not FImpersonationLogged then
+    begin
+      FImpersonationLogged := True;
+      Log('AVISO: el hilo de la peticion suplantaba a otro usuario; la comprobacion y la recarga se hacen con la identidad del proceso');
+    end;
+    DoUpdateIfNeededNow;
+  finally
+    RestoreIdentity(Tok);
+  end;
+end;
+
+procedure TFilterLoader.DoUpdateIfNeededNow;
 var
   NeedCheck, NeedLoad: Boolean;
 begin
@@ -355,7 +386,16 @@ begin
         except
           LogException('ReloadDLL: TerminateExtension del hijo');
         end;
+        // Antes de FreeLibrary hay que dejar que terminen los hilos del hijo:
+        // FreeLibrary toma el bloqueo del cargador de Windows, y un hilo del
+        // hijo que este saliendo necesita ese bloqueo mientras el cierre del
+        // hijo espera a que acabe (interbloqueo; visto en un volcado). Aqui no
+        // se tiene tomado, asi que pueden salir. Si alguno no termina por si
+        // solo, se termina a la fuerza como ultimo recurso.
+        WaitForModuleThreads(FDLL, CHILD_THREADS_WAIT_MS, True);
+        Log('ReloadDLL: FreeLibrary del hijo');
         FreeLibrary(FDLL);
+        Log('ReloadDLL: FreeLibrary del hijo terminado');
         FDLL := 0;
         FCallbackVersion := nil;
         FCallbackProc := nil;

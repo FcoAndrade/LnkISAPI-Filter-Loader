@@ -8,66 +8,69 @@
   resources were bound to the produced executable.
 */
 
-#define System_RTLConsts_SWindowsServer2012R2 65344
-#define System_RTLConsts_SWindowsServer2016 65345
-#define System_RTLConsts_SWindows8 65346
-#define System_RTLConsts_SWindows8Point1 65347
-#define System_RTLConsts_SWindows10 65348
-#define System_RTLConsts_sObserverUnsupported 65349
-#define System_RTLConsts_sObserverMultipleSingleCast 65350
-#define System_RTLConsts_sObserverNoInterface 65351
-#define System_RTLConsts_sObserverNoSinglecastFound 65352
-#define System_RTLConsts_sObserverNoMulticastFound 65353
-#define System_RTLConsts_sMustWaitOnOneEvent 65354
-#define System_RTLConsts_sBeginInvokeDestroying 65355
-#define System_RTLConsts_SNonPublicType 65360
-#define System_RTLConsts_SByRefArgMismatch 65361
-#define System_RTLConsts_SVersionStr 65362
-#define System_RTLConsts_SSPVersionStr 65363
-#define System_RTLConsts_SVersion32 65364
-#define System_RTLConsts_SVersion64 65365
-#define System_RTLConsts_SWindows 65366
-#define System_RTLConsts_SWindowsVista 65367
-#define System_RTLConsts_SWindowsServer2008 65368
-#define System_RTLConsts_SWindows7 65369
-#define System_RTLConsts_SWindowsServer2008R2 65370
-#define System_RTLConsts_SWindows2000 65371
-#define System_RTLConsts_SWindowsXP 65372
-#define System_RTLConsts_SWindowsServer2003 65373
-#define System_RTLConsts_SWindowsServer2003R2 65374
-#define System_RTLConsts_SWindowsServer2012 65375
-#define System_RTLConsts_SThreadError 65376
-#define System_RTLConsts_SThreadExternalTerminate 65377
-#define System_RTLConsts_SThreadExternalWait 65378
-#define System_RTLConsts_SThreadStartError 65379
-#define System_RTLConsts_SThreadExternalCheckTerminated 65380
-#define System_RTLConsts_SThreadExternalSetReturnValue 65381
-#define System_RTLConsts_SParamIsNegative 65382
-#define System_RTLConsts_SInputBufferExceed 65383
-#define System_RTLConsts_SDriveNotFound 65384
-#define System_RTLConsts_sNoConstruct 65385
-#define System_RTLConsts_SArgumentOutOfRange 65386
-#define System_RTLConsts_SArgumentNil 65387
-#define System_RTLConsts_SGenericItemNotFound 65388
-#define System_RTLConsts_SGenericDuplicateItem 65389
-#define System_RTLConsts_SInsufficientRtti 65390
-#define System_RTLConsts_SParameterCountMismatch 65391
-#define System_RTLConsts_SInvalidProperty 65392
-#define System_RTLConsts_SInvalidPropertyPath 65393
-#define System_RTLConsts_SInvalidPropertyValue 65394
-#define System_RTLConsts_SListCapacityError 65395
-#define System_RTLConsts_SListCountError 65396
-#define System_RTLConsts_SListIndexError 65397
-#define System_RTLConsts_SMemoryStreamError 65398
-#define System_RTLConsts_SNoComSupport 65399
-#define System_RTLConsts_SPropertyException 65400
-#define System_RTLConsts_SReadError 65401
-#define System_RTLConsts_SReadOnlyProperty 65402
-#define System_RTLConsts_SSeekNotImplemented 65403
-#define System_RTLConsts_SUnknownGroup 65404
-#define System_RTLConsts_SUnknownProperty 65405
-#define System_RTLConsts_SWriteError 65406
-#define System_RTLConsts_SThreadCreateError 65407
+#define System_RTLConsts_SWindowsServer2003 65344
+#define System_RTLConsts_SWindowsServer2003R2 65345
+#define System_RTLConsts_SWindowsServer2012 65346
+#define System_RTLConsts_SWindowsServer2012R2 65347
+#define System_RTLConsts_SWindowsServer2016 65348
+#define System_RTLConsts_SWindows8 65349
+#define System_RTLConsts_SWindows8Point1 65350
+#define System_RTLConsts_SWindows10 65351
+#define System_RTLConsts_sObserverUnsupported 65352
+#define System_RTLConsts_sObserverMultipleSingleCast 65353
+#define System_RTLConsts_sObserverNoInterface 65354
+#define System_RTLConsts_sObserverNoSinglecastFound 65355
+#define System_RTLConsts_sObserverNoMulticastFound 65356
+#define System_RTLConsts_sMustWaitOnOneEvent 65357
+#define System_RTLConsts_sBeginInvokeDestroying 65358
+#define System_RTLConsts_SGenericDuplicateItem 65360
+#define System_RTLConsts_SInsufficientRtti 65361
+#define System_RTLConsts_SParameterCountMismatch 65362
+#define System_RTLConsts_SNonPublicType 65363
+#define System_RTLConsts_SByRefArgMismatch 65364
+#define System_RTLConsts_SVersionStr 65365
+#define System_RTLConsts_SSPVersionStr 65366
+#define System_RTLConsts_SVersion32 65367
+#define System_RTLConsts_SVersion64 65368
+#define System_RTLConsts_SWindows 65369
+#define System_RTLConsts_SWindowsVista 65370
+#define System_RTLConsts_SWindowsServer2008 65371
+#define System_RTLConsts_SWindows7 65372
+#define System_RTLConsts_SWindowsServer2008R2 65373
+#define System_RTLConsts_SWindows2000 65374
+#define System_RTLConsts_SWindowsXP 65375
+#define System_RTLConsts_SWriteError 65376
+#define System_RTLConsts_SThreadCreateError 65377
+#define System_RTLConsts_SThreadError 65378
+#define System_RTLConsts_SThreadExternalTerminate 65379
+#define System_RTLConsts_SThreadExternalWait 65380
+#define System_RTLConsts_SThreadStartError 65381
+#define System_RTLConsts_SThreadExternalCheckTerminated 65382
+#define System_RTLConsts_SThreadExternalSetReturnValue 65383
+#define System_RTLConsts_SParamIsNegative 65384
+#define System_RTLConsts_SInputBufferExceed 65385
+#define System_RTLConsts_SDriveNotFound 65386
+#define System_RTLConsts_sInvalidStringAndObjectArrays 65387
+#define System_RTLConsts_sNoConstruct 65388
+#define System_RTLConsts_SArgumentOutOfRange 65389
+#define System_RTLConsts_SArgumentNil 65390
+#define System_RTLConsts_SGenericItemNotFound 65391
+#define System_RTLConsts_SInvalidName 65392
+#define System_RTLConsts_SInvalidProperty 65393
+#define System_RTLConsts_SInvalidPropertyPath 65394
+#define System_RTLConsts_SInvalidPropertyValue 65395
+#define System_RTLConsts_SListCapacityError 65396
+#define System_RTLConsts_SListCountError 65397
+#define System_RTLConsts_SListIndexError 65398
+#define System_RTLConsts_SMemoryStreamError 65399
+#define System_RTLConsts_SNoComSupport 65400
+#define System_RTLConsts_SPropertyException 65401
+#define System_RTLConsts_SReadError 65402
+#define System_RTLConsts_SReadOnlyProperty 65403
+#define System_RTLConsts_SSeekNotImplemented 65404
+#define System_RTLConsts_SSortedListError 65405
+#define System_RTLConsts_SUnknownGroup 65406
+#define System_RTLConsts_SUnknownProperty 65407
 #define System_SysConst_SInvalidDestinationIndex 65408
 #define System_SysConst_SInvalidCodePage 65409
 #define System_SysConst_SInvalidEncodingName 65410
@@ -80,10 +83,10 @@
 #define System_RTLConsts_SDuplicateClass 65417
 #define System_RTLConsts_SDuplicateItem 65418
 #define System_RTLConsts_SDuplicateName 65419
-#define System_RTLConsts_SFCreateErrorEx 65420
-#define System_RTLConsts_SFOpenErrorEx 65421
-#define System_RTLConsts_SInvalidImage 65422
-#define System_RTLConsts_SInvalidName 65423
+#define System_RTLConsts_SDuplicateString 65420
+#define System_RTLConsts_SFCreateErrorEx 65421
+#define System_RTLConsts_SFOpenErrorEx 65422
+#define System_RTLConsts_SInvalidImage 65423
 #define System_SysConst_SShortDayNameThu 65424
 #define System_SysConst_SShortDayNameFri 65425
 #define System_SysConst_SShortDayNameSat 65426
@@ -198,6 +201,9 @@
 #define System_SysConst_SRangeError 65535
 STRINGTABLE
 BEGIN
+	System_RTLConsts_SWindowsServer2003,	L"Windows Server 2003"
+	System_RTLConsts_SWindowsServer2003R2,	L"Windows Server 2003 R2"
+	System_RTLConsts_SWindowsServer2012,	L"Windows Server 2012"
 	System_RTLConsts_SWindowsServer2012R2,	L"Windows Server 2012 R2"
 	System_RTLConsts_SWindowsServer2016,	L"Windows Server 2016"
 	System_RTLConsts_SWindows8,	L"Windows 8"
@@ -210,6 +216,9 @@ BEGIN
 	System_RTLConsts_sObserverNoMulticastFound,	L"No multi cast observer with ID %d was added to the observer collection"
 	System_RTLConsts_sMustWaitOnOneEvent,	L"Must wait on at least one event"
 	System_RTLConsts_sBeginInvokeDestroying,	L"Cannot call BeginInvoke on a TComponent in the process of destruction"
+	System_RTLConsts_SGenericDuplicateItem,	L"Duplicates not allowed"
+	System_RTLConsts_SInsufficientRtti,	L"Insufficient RTTI available to support this operation"
+	System_RTLConsts_SParameterCountMismatch,	L"Parameter count mismatch"
 	System_RTLConsts_SNonPublicType,	L"Type '%s' is not declared in the interface section of a unit"
 	System_RTLConsts_SByRefArgMismatch,	L"VAR and OUT arguments must match parameter type exactly"
 	System_RTLConsts_SVersionStr,	L"%s (Version %d.%d, Build %d, %5:s)"
@@ -223,9 +232,8 @@ BEGIN
 	System_RTLConsts_SWindowsServer2008R2,	L"Windows Server 2008 R2"
 	System_RTLConsts_SWindows2000,	L"Windows 2000"
 	System_RTLConsts_SWindowsXP,	L"Windows XP"
-	System_RTLConsts_SWindowsServer2003,	L"Windows Server 2003"
-	System_RTLConsts_SWindowsServer2003R2,	L"Windows Server 2003 R2"
-	System_RTLConsts_SWindowsServer2012,	L"Windows Server 2012"
+	System_RTLConsts_SWriteError,	L"Stream write error"
+	System_RTLConsts_SThreadCreateError,	L"Thread creation error: %s"
 	System_RTLConsts_SThreadError,	L"Thread Error: %s (%d)"
 	System_RTLConsts_SThreadExternalTerminate,	L"Cannot terminate an externally created thread"
 	System_RTLConsts_SThreadExternalWait,	L"Cannot wait for an externally created thread"
@@ -235,13 +243,12 @@ BEGIN
 	System_RTLConsts_SParamIsNegative,	L"Parameter %s cannot be a negative value"
 	System_RTLConsts_SInputBufferExceed,	L"Input buffer exceeded for %s = %d, %s = %d"
 	System_RTLConsts_SDriveNotFound,	L"The drive cannot be found"
+	System_RTLConsts_sInvalidStringAndObjectArrays,	L"Length of Strings and Objects arrays must be equal"
 	System_RTLConsts_sNoConstruct,	L"Class %s is not intended to be constructed"
 	System_RTLConsts_SArgumentOutOfRange,	L"Argument out of range"
 	System_RTLConsts_SArgumentNil,	L"Argument must not be nil"
 	System_RTLConsts_SGenericItemNotFound,	L"Item not found"
-	System_RTLConsts_SGenericDuplicateItem,	L"Duplicates not allowed"
-	System_RTLConsts_SInsufficientRtti,	L"Insufficient RTTI available to support this operation"
-	System_RTLConsts_SParameterCountMismatch,	L"Parameter count mismatch"
+	System_RTLConsts_SInvalidName,	L"''%s'' is not a valid component name"
 	System_RTLConsts_SInvalidProperty,	L"Invalid property value"
 	System_RTLConsts_SInvalidPropertyPath,	L"Invalid property path"
 	System_RTLConsts_SInvalidPropertyValue,	L"Invalid property value"
@@ -254,10 +261,9 @@ BEGIN
 	System_RTLConsts_SReadError,	L"Stream read error"
 	System_RTLConsts_SReadOnlyProperty,	L"Property is read-only"
 	System_RTLConsts_SSeekNotImplemented,	L"%s.Seek not implemented"
+	System_RTLConsts_SSortedListError,	L"Operation not allowed on sorted list"
 	System_RTLConsts_SUnknownGroup,	L"%s not in a class registration group"
 	System_RTLConsts_SUnknownProperty,	L"Property %s does not exist"
-	System_RTLConsts_SWriteError,	L"Stream write error"
-	System_RTLConsts_SThreadCreateError,	L"Thread creation error: %s"
 	System_SysConst_SInvalidDestinationIndex,	L"Invalid destination index (%d)"
 	System_SysConst_SInvalidCodePage,	L"Invalid code page"
 	System_SysConst_SInvalidEncodingName,	L"Invalid encoding name"
@@ -270,10 +276,10 @@ BEGIN
 	System_RTLConsts_SDuplicateClass,	L"A class named %s already exists"
 	System_RTLConsts_SDuplicateItem,	L"List does not allow duplicates ($0%x)"
 	System_RTLConsts_SDuplicateName,	L"A component named %s already exists"
+	System_RTLConsts_SDuplicateString,	L"String list does not allow duplicates"
 	System_RTLConsts_SFCreateErrorEx,	L"Cannot create file \"%s\". %s"
 	System_RTLConsts_SFOpenErrorEx,	L"Cannot open file \"%s\". %s"
 	System_RTLConsts_SInvalidImage,	L"Invalid stream format"
-	System_RTLConsts_SInvalidName,	L"''%s'' is not a valid component name"
 	System_SysConst_SShortDayNameThu,	L"Thu"
 	System_SysConst_SShortDayNameFri,	L"Fri"
 	System_SysConst_SShortDayNameSat,	L"Sat"
@@ -389,4 +395,4 @@ BEGIN
 END
 
 /* N:\GITHUB\LnkISAPI-Filter-Loader\src\FilterLoader.res */
-/* N:\GITHUB\LnkISAPI-Filter-Loader\src\FilterLoader.drf */
+/* C:\Users\Fran\AppData\Local\Temp\dtfA3D3.tmp */

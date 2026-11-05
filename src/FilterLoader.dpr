@@ -30,7 +30,9 @@ library FilterLoader;
 uses
   ISAPI2,
   Windows,
+  uIdentity in 'uIdentity.pas',
   uLog in 'uLog.pas',
+  uThreads in 'uThreads.pas',
   uLoader in 'uLoader.pas';
 
 {$R *.res}
