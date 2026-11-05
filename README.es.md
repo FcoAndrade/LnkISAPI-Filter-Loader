@@ -58,7 +58,7 @@ Cuando aparece un `.upd`, el cargador hace esto:
 
 ### Comprobar que IIS no sirve los ficheros
 
-Si usas el cargador como extensión, abre `http://localhost/…/MiServicio.dll/test` **desde el propio servidor**. El cargador crea tres ficheros de prueba inofensivos (`.run`, `.upd` y `.bak`), los pide a IIS por HTTP, los borra y responde en texto plano si IIS no los sirve (correcto) o los descarga (peligro). También informa de si hay un `.upd` esperando. **`/test` nunca aplica una actualización**: un `.upd` pendiente lo aplica la primera petición *normal* pasado el intervalo de comprobación (10 s en Release, 500 ms en Debug), o de inmediato llamando a `…/MiServicio.dll/update` desde el propio servidor. Se incluye una [colección de Postman](doc/FilterLoader.postman_collection.json) con estas peticiones. Detalles en el [manual](doc/COMPILACION_Y_DESPLIEGUE.md).
+Si usas el cargador como extensión, abre `http://localhost/…/MiServicio.dll/test` **desde el propio servidor**. El cargador crea tres ficheros de prueba inofensivos (`.run`, `.upd` y `.bak`), los pide a IIS por HTTP, los borra y responde en texto plano si IIS no los sirve (correcto) o los descarga (peligro). También informa de si hay un `.upd` esperando. Las dos responden en **inglés por defecto** (en castellano con `?lang=es` o con un navegador en castellano). **`/test` nunca aplica una actualización**: un `.upd` pendiente lo aplica la primera petición *normal* pasado el intervalo de comprobación (10 s en Release, 500 ms en Debug), o de inmediato llamando a `…/MiServicio.dll/update` desde el propio servidor. Se incluye una [colección de Postman](doc/FilterLoader.postman_collection.json) con estas peticiones. Detalles en el [manual](doc/COMPILACION_Y_DESPLIEGUE.md).
 
 ## Estructura del repositorio
 
@@ -101,10 +101,10 @@ Instrucciones completas, con la línea de comandos y el despliegue en IIS: [manu
 Con la configuración Debug, el cargador escribe un log en la carpeta `logs` que cuelga de la de la DLL, con el mismo nombre que la DLL más `.log` (por ejemplo `logs\MiFiltro.dll.log`). La carpeta se crea si no existe; si no se puede crear, el log va a la propia carpeta de la DLL. Cada línea lleva fecha y hora, el identificador de proceso y de hilo, y el mensaje:
 
 ```
-2026-11-04 22:10:31.532 [4128:5512] ReloadDLL: ShouldReload=True (hijo cargado=False, .upd existe=True)
+2026-11-04 22:10:31.532 [4128:5512] ReloadDLL: ShouldReload=True (child loaded=False, .upd exists=True)
 ```
 
-Se registra la creación y destrucción del cargador, cada decisión de recarga, el resultado de los renombrados, `LoadLibrary` con su error de Windows, las exportaciones y los flags del filtro hijo, las excepciones, y cada notificación (si se reenvió al hijo o no) con su resultado. Los mensajes están escritos en castellano.
+Se registra la creación y destrucción del cargador, cada decisión de recarga, el resultado de los renombrados, `LoadLibrary` con su error de Windows, las exportaciones y los flags del filtro hijo, las excepciones, y cada notificación (si se reenvió al hijo o no) con su resultado. Los mensajes están escritos en inglés.
 
 - La identidad del grupo de aplicaciones de IIS necesita **permiso de escritura** en la carpeta del filtro (para crear `logs` y escribir en ella). Si no lo tiene, no se crea el fichero (no da error).
 - El fichero rota a `.log.old` al pasar de 2 MB.

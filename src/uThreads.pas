@@ -134,14 +134,14 @@ begin
       Ids := ThreadsOfModule(ModuleBase);
       if Length(Ids) = 0 then
       begin
-        Log('uThreads: ningun hilo del modulo $%x (esperado %d ms)', [ModuleBase, GetTickCount - T0]);
+        Log('uThreads: no threads left in module $%x (waited %d ms)', [ModuleBase, GetTickCount - T0]);
         Exit;
       end;
       Sleep(25);
     until (GetTickCount - T0) >= TimeoutMs;
 
     Result := Length(Ids);
-    Log('uThreads: tras %d ms siguen %d hilo(s) del modulo $%x', [TimeoutMs, Result, ModuleBase]);
+    Log('uThreads: after %d ms, %d thread(s) of module $%x are still alive', [TimeoutMs, Result, ModuleBase]);
     if not KillRemaining then
       Exit;
 
@@ -150,7 +150,7 @@ begin
       H := OpenThread(THR_TERMINATE, False, Ids[I]);
       if H <> 0 then
       try
-        Log('uThreads: terminando a la fuerza el hilo %d', [Ids[I]]);
+        Log('uThreads: forcibly terminating thread %d', [Ids[I]]);
         TerminateThread(H, 0);
       finally
         CloseHandle(H);
@@ -167,7 +167,7 @@ begin
         Break;
       Sleep(25);
     until (GetTickCount - T0) >= 1000;
-    Log('uThreads: tras terminarlos a la fuerza quedan %d hilo(s)', [Result]);
+    Log('uThreads: after forcibly terminating them, %d thread(s) remain', [Result]);
   except
     LogException('WaitForModuleThreads');
   end;

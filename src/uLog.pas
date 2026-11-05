@@ -155,14 +155,14 @@ var
 begin
   Obj := ExceptObject;
   if Obj is Exception then
-    Log('EXCEPCION en %s: %s: %s', [Context, Obj.ClassName, Exception(Obj).Message])
+    Log('EXCEPTION in %s: %s: %s', [Context, Obj.ClassName, Exception(Obj).Message])
   else
-    Log('EXCEPCION en %s: (objeto de excepcion desconocido)', [Context]);
+    Log('EXCEPTION in %s: (unknown exception object)', [Context]);
 end;
 
 procedure LogWinError(const Context: string; ErrorCode: Cardinal);
 begin
-  Log('%s: error de Windows %d - %s', [Context, ErrorCode, SysErrorMessage(ErrorCode)]);
+  Log('%s: Windows error %d - %s', [Context, ErrorCode, SysErrorMessage(ErrorCode)]);
 end;
 
 initialization

@@ -2,7 +2,7 @@
 	"info": {
 		"_postman_id": "6f1d3b3e-4c0a-4d6b-9a52-2b6f0f5c8a11",
 		"name": "FilterLoader - peticiones especiales / special requests",
-		"description": "ES: Peticiones para probar el cargador ISAPI (LnkISAPI-Filter-Loader) cuando se usa como extension. Cambia la variable `baseUrl` por la URL de tu DLL (sin barra final), p. ej. http://localhost/WebService/MiServicio.dll\n\nIMPORTANTE: `/test` y `/update` solo responden a peticiones que llegan DESDE EL PROPIO SERVIDOR (127.0.0.1 o ::1); desde otro equipo devuelven 403. Ejecuta Postman en el servidor.\n\n`/test` y `/update` las atiende el propio cargador y no llegan a tu DLL real. Un .upd pendiente NO se aplica con `/test`: se aplica en la primera peticion normal (la 1 de esta coleccion) pasado el intervalo de comprobacion (10 s en Release, 500 ms en Debug), o llamando a `/update`.\n\nEN: Requests to exercise the ISAPI loader when used as an extension. Change the `baseUrl` variable to your DLL URL (no trailing slash). `/test` and `/update` only answer requests coming FROM THE SERVER ITSELF (127.0.0.1 or ::1); from another machine they return 403, so run Postman on the server. They are served by the loader itself and never reach your real DLL. A pending .upd is NOT applied by `/test`: it is applied by the first normal request (number 1 in this collection) once the check interval has passed (10 s in Release, 500 ms in Debug), or by calling `/update`.",
+		"description": "ES: Peticiones para probar el cargador ISAPI (LnkISAPI-Filter-Loader) cuando se usa como extension. Cambia la variable `baseUrl` por la URL de tu DLL (sin barra final), p. ej. http://localhost/WebService/MiServicio.dll\n\nIMPORTANTE: `/test` y `/update` solo responden a peticiones que llegan DESDE EL PROPIO SERVIDOR (127.0.0.1 o ::1); desde otro equipo devuelven 403. Ejecuta Postman en el servidor.\n\n`/test` y `/update` las atiende el propio cargador y no llegan a tu DLL real. Un .upd pendiente NO se aplica con `/test`: se aplica en la primera peticion normal (la 1 de esta coleccion) pasado el intervalo de comprobacion (10 s en Release, 500 ms en Debug), o llamando a `/update`.\n\nIdioma: responden en ingles por defecto; anade `?lang=es` para castellano. Los tests leen las cabeceras `X-FilterLoader-Result` y `X-FilterLoader-Pending`, que llevan un codigo estable en ingles igual en todos los idiomas, y no el texto traducido.\n\nEN: Requests to exercise the ISAPI loader when used as an extension. Change the `baseUrl` variable to your DLL URL (no trailing slash). `/test` and `/update` only answer requests coming FROM THE SERVER ITSELF (127.0.0.1 or ::1); from another machine they return 403, so run Postman on the server. They are served by the loader itself and never reach your real DLL. A pending .upd is NOT applied by `/test`: it is applied by the first normal request (number 1 in this collection) once the check interval has passed (10 s in Release, 500 ms in Debug), or by calling `/update`.\n\nLanguage: they answer in English by default; add `?lang=es` for Spanish. The tests read the `X-FilterLoader-Result` and `X-FilterLoader-Pending` headers, which carry a stable English code, the same in every language, instead of the translated text.",
 		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
 	},
 	"item": [
@@ -49,10 +49,10 @@
 							"    pm.response.to.have.status(200);",
 							"});",
 							"pm.test('IIS no sirve .run/.upd/.bak / IIS does not serve them', function () {",
-							"    pm.expect(pm.response.text()).to.include('RESULTADO: CORRECTO');",
+							"    pm.expect(pm.response.headers.get('X-FilterLoader-Result')).to.eql('OK');",
 							"});",
 							"pm.test('Informa de la actualizacion pendiente / Reports pending update', function () {",
-							"    pm.expect(pm.response.text()).to.match(/Actualizacion pendiente: (SI|no)/);",
+							"    pm.expect(pm.response.headers.get('X-FilterLoader-Pending')).to.be.oneOf(['yes', 'no']);",
 							"});"
 						]
 					}
@@ -60,7 +60,14 @@
 			],
 			"request": {
 				"method": "GET",
-				"header": [],
+				"header": [
+					{
+						"key": "Accept",
+						"value": "text/plain",
+						"type": "text",
+						"description": "Pide texto plano (los tests leen el texto). Con text/html o desde el navegador responde una pagina HTML. / Plain text for the tests; a browser or text/html gets an HTML page."
+					}
+				],
 				"url": {
 					"raw": "{{baseUrl}}/test",
 					"host": [
@@ -86,7 +93,7 @@
 							"    pm.response.to.have.status(200);",
 							"});",
 							"pm.test('Resultado reconocible / Recognisable result', function () {",
-							"    pm.expect(pm.response.text()).to.match(/RESULTADO: (ACTUALIZADO|SIN ACTUALIZACION)/);",
+							"    pm.expect(pm.response.headers.get('X-FilterLoader-Result')).to.be.oneOf(['UPDATED', 'NONE']);",
 							"});"
 						]
 					}
@@ -94,7 +101,14 @@
 			],
 			"request": {
 				"method": "GET",
-				"header": [],
+				"header": [
+					{
+						"key": "Accept",
+						"value": "text/plain",
+						"type": "text",
+						"description": "Pide texto plano (los tests leen el texto). Con text/html o desde el navegador responde una pagina HTML. / Plain text for the tests; a browser or text/html gets an HTML page."
+					}
+				],
 				"url": {
 					"raw": "{{baseUrl}}/update",
 					"host": [
@@ -104,7 +118,7 @@
 						"update"
 					]
 				},
-				"description": "ES: Aplica el .upd AHORA si existe, sin esperar al intervalo de comprobacion ni a una peticion normal. Responde en texto plano con una linea 'RESULTADO: ...': ACTUALIZADO (200), SIN ACTUALIZACION (200, no hay .upd), NO APLICADA (409, el .upd sigue ahi: se esta copiando o esta abierto) o BLOQUEADA (409, falta permiso de Modificar sobre la carpeta). Puede tardar unos 5 s si hay actualizacion. Solo desde el propio servidor.\n\nEN: Applies the .upd NOW if it exists, without waiting for the check interval or a normal request. Plain-text answer with a 'RESULTADO: ...' line: ACTUALIZADO (200), SIN ACTUALIZACION (200, no .upd), NO APLICADA (409, the .upd is still there: being copied or open) or BLOQUEADA (409, missing Modify permission on the folder). May take about 5 s when there is an update. From the server itself only."
+				"description": "ES: Aplica el .upd AHORA si existe, sin esperar al intervalo de comprobacion ni a una peticion normal. Responde con la cabecera X-FilterLoader-Result: UPDATED (200), NONE (200, no hay .upd), NOT_APPLIED (409, el .upd sigue ahi: se esta copiando o esta abierto), BLOCKED (409, falta permiso de Modificar sobre la carpeta) o ERROR (409). Puede tardar unos 5 s si hay actualizacion. Solo desde el propio servidor.\n\nEN: Applies the .upd NOW if it exists, without waiting for the check interval or a normal request. It answers with the X-FilterLoader-Result header: UPDATED (200), NONE (200, no .upd), NOT_APPLIED (409, the .upd is still there: being copied or open), BLOCKED (409, missing Modify permission on the folder) or ERROR (409). May take about 5 s when there is an update. From the server itself only."
 			},
 			"response": []
 		}

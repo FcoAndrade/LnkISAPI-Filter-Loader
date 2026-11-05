@@ -150,7 +150,7 @@ type
     procedure ReloadDLL;
     procedure DoUpdateIfNeeded;
     procedure DoUpdateIfNeededNow;
-    function ForceUpdate: string;
+    function ForceUpdate: TUpdateResult;
     function CanAccessDLL: Boolean;
   public
     constructor Create;
@@ -190,7 +190,7 @@ begin
   except
     on E: Exception do
     begin
-      Log('CanAccessDLL: no se puede abrir en exclusiva "%s": %s', [FUpdateDLLName, E.Message]);
+      Log('CanAccessDLL: cannot open "%s" exclusively: %s', [FUpdateDLLName, E.Message]);
       Result := False;
     end;
   end;
@@ -212,17 +212,17 @@ begin
   // que version esta desplegada.
   Age := FileStamp(ThisModule);
   if Age = 0 then
-    Log('==== Cargador iniciado (fecha de la DLL desconocida) ====')
+    Log('==== Loader started (DLL date unknown) ====')
   else
-    Log('==== Cargador de fecha %s ====', [FormatDateTime('yyyy-mm-dd hh:nn:ss', Age)]);
-  Log('Proceso ejecutandose como usuario "%s" (con ApplicationPoolIdentity es el nombre del grupo de aplicaciones)', [CurrentUserName]);
-  Log('TFilterLoader.Create: modulo="%s" upd="%s" run="%s" bak="%s" espera=%d ms',
+    Log('==== Loader DLL dated %s ====', [FormatDateTime('yyyy-mm-dd hh:nn:ss', Age)]);
+  Log('Process running as user "%s" (with ApplicationPoolIdentity this is the application pool name)', [CurrentUserName]);
+  Log('TFilterLoader.Create: module="%s" upd="%s" run="%s" bak="%s" wait=%d ms',
     [ThisModule, FUpdateDLLName, FRunDLLName, FBackupDLLName, WAIT_BEFORE_CHECK]);
 end;
 
 destructor TFilterLoader.Destroy;
 begin
-  Log('TFilterLoader.Destroy (filtro hijo cargado=%s)', [BoolToStr(FDLL <> 0, True)]);
+  Log('TFilterLoader.Destroy (child loaded=%s)', [BoolToStr(FDLL <> 0, True)]);
   // El hijo NO se descarga con FreeLibrary: el cargador solo se destruye al
   // apagar (IIS ya llamo a TerminateExtension/TerminateFilter), y descargar un
   // hijo con hilos propios (p. ej. DMVCFramework) se queda colgado: FreeLibrary
@@ -231,7 +231,7 @@ begin
   // terminar el proceso, Windows ya habra matado esos hilos y lo descarga sin
   // esperar.
   if FDLL <> 0 then
-    Log('TFilterLoader.Destroy: se deja el hijo cargado, lo descarga Windows al terminar el proceso');
+    Log('TFilterLoader.Destroy: child left loaded; Windows unloads it when the process ends');
   FDLLSync.Free;
   FCheckSync.Free;
   inherited Destroy;
@@ -251,7 +251,7 @@ begin
     if (Tok <> 0) and not FImpersonationLogged then
     begin
       FImpersonationLogged := True;
-      Log('AVISO: el hilo de la peticion suplantaba a otro usuario; la comprobacion y la recarga se hacen con la identidad del proceso');
+      Log('NOTICE: the request thread was impersonating another user; the check and the reload run as the process identity');
     end;
     DoUpdateIfNeededNow;
   finally
@@ -260,21 +260,23 @@ begin
 end;
 
 // Peticion /update: aplica el .upd si existe sin esperar al intervalo de
-// comprobacion. Devuelve el texto del resultado (empieza por ACTUALIZADO,
-// SIN ACTUALIZACION, BLOQUEADA o NO APLICADA).
-function TFilterLoader.ForceUpdate: string;
+// comprobacion. Devuelve el resultado estructurado; el texto (en el idioma del
+// cliente) lo compone uTest.
+function TFilterLoader.ForceUpdate: TUpdateResult;
 var
   Tok: THandle;
   T0: DWORD;
   Ready: Boolean;
-  Name: string;
 begin
-  Name := ExtractFileName(FUpdateDLLName);
+  Result.Outcome := uoError;
+  Result.FileName := ExtractFileName(FUpdateDLLName);
+  Result.ElapsedMs := 0;
+  Result.ChildReady := False;
   Tok := RevertToProcessIdentity;
   try
     if not FileExists(FUpdateDLLName) then
     begin
-      Result := Format('SIN ACTUALIZACION - no existe %s, no hay nada que aplicar.', [Name]);
+      Result.Outcome := uoNone;
       Exit;
     end;
 
@@ -294,21 +296,15 @@ begin
     finally
       FDLLSync.EndRead;
     end;
+    Result.ElapsedMs := GetTickCount - T0;
+    Result.ChildReady := Ready;
 
     if not FileExists(FUpdateDLLName) then
-    begin
-      Result := Format('ACTUALIZADO - %s aplicado en %d ms. ', [Name, GetTickCount - T0]);
-      if Ready then
-        Result := Result + 'La nueva version esta cargada y lista.'
-      else
-        Result := Result + 'ATENCION: la nueva version no se pudo inicializar; ver el log (compilacion Debug).';
-    end
+      Result.Outcome := uoUpdated
     else if (FBlockedUpdateStamp <> 0) and (FileStamp(FUpdateDLLName) = FBlockedUpdateStamp) then
-      Result := Format('BLOQUEADA - no se pudo renombrar %s (suele ser falta de permiso de Modificar ' +
-        'para la identidad del grupo de aplicaciones en la carpeta). Se sigue con la version actual.', [Name])
+      Result.Outcome := uoBlocked
     else
-      Result := Format('NO APLICADA - %s sigue ahi: puede estar copiandose todavia o abierto por ' +
-        'otro programa. Vuelve a llamar a /update cuando termine.', [Name]);
+      Result.Outcome := uoNotApplied;
   finally
     RestoreIdentity(Tok);
   end;
@@ -349,7 +345,7 @@ begin
         end;
         if NeedLoad then
         begin
-          Log('DoUpdateIfNeeded: hay que recargar (hijo cargado=%s)', [BoolToStr(FDLL <> 0, True)]);
+          Log('DoUpdateIfNeeded: reload needed (child loaded=%s)', [BoolToStr(FDLL <> 0, True)]);
           ReloadDLL;
         end;
       end;
@@ -370,12 +366,12 @@ begin
     if Assigned(FCallbackVersion) then
     begin
       Result := FCallbackVersion(pVer);
-      Log('GetFilterVersion del hijo -> %s (flags=$%x)', [BoolToStr(Result, True), pVer.dwFlags]);
+      Log('Child GetFilterVersion -> %s (flags=$%x)', [BoolToStr(Result, True), pVer.dwFlags]);
     end
     else
     begin
       Result := False;
-      Log('GetFilterVersion: no hay filtro hijo cargado, se devuelve False');
+      Log('GetFilterVersion: no child filter loaded, returning False');
     end;
   finally
     FDLLSync.EndRead;
@@ -392,12 +388,12 @@ begin
     if Assigned(FCallbackProc) and ((NotificationType and FFilterFlags) <> 0) then
     begin
       Result := FCallbackProc(pfc, NotificationType, pvNotification);
-      Log('HttpFilterProc: notificacion=$%x reenviada al hijo -> resultado=%d', [NotificationType, Result]);
+      Log('HttpFilterProc: notification=$%x forwarded to the child -> result=%d', [NotificationType, Result]);
     end
     else
     begin
       Result := SF_STATUS_REQ_NEXT_NOTIFICATION;
-      Log('HttpFilterProc: notificacion=$%x NO reenviada (hijo cargado=%s, flags=$%x)',
+      Log('HttpFilterProc: notification=$%x NOT forwarded (child loaded=%s, flags=$%x)',
         [NotificationType, BoolToStr(Assigned(FCallbackProc), True), FFilterFlags]);
     end;
   finally
@@ -421,7 +417,7 @@ begin
     // Si no hay hijo cargado se carga el .run aunque el .upd este bloqueado
     ShouldReload := ((FDLL=0) or (UpdExists and not UpdBlocked)) and
       (UpdBlocked or CanAccessDLL);
-    Log('ReloadDLL: ShouldReload=%s (hijo cargado=%s, .upd existe=%s, .upd bloqueado=%s)',
+    Log('ReloadDLL: ShouldReload=%s (child loaded=%s, .upd exists=%s, .upd blocked=%s)',
       [BoolToStr(ShouldReload, True), BoolToStr(FDLL <> 0, True),
        BoolToStr(UpdExists, True), BoolToStr(UpdBlocked, True)]);
     if ShouldReload then
@@ -429,18 +425,18 @@ begin
       // First unload the DLL
       if FDLL <> 0 then
       begin
-        Log('ReloadDLL: descargando el hijo actual');
+        Log('ReloadDLL: unloading the current child');
         if Assigned(FCallbackTerminate) then
         try
           FCallbackTerminate(0);
         except
-          LogException('ReloadDLL: TerminateFilter del hijo');
+          LogException('ReloadDLL: child TerminateFilter');
         end;
         if Assigned(FExtTerminate) and FExtReady then
         try
           FExtTerminate(EXT_TERM_MUST_UNLOAD);
         except
-          LogException('ReloadDLL: TerminateExtension del hijo');
+          LogException('ReloadDLL: child TerminateExtension');
         end;
         // Antes de FreeLibrary hay que dejar que terminen los hilos del hijo:
         // FreeLibrary toma el bloqueo del cargador de Windows, y un hilo del
@@ -449,9 +445,9 @@ begin
         // se tiene tomado, asi que pueden salir. Si alguno no termina por si
         // solo, se termina a la fuerza como ultimo recurso.
         WaitForModuleThreads(FDLL, CHILD_THREADS_WAIT_MS, True);
-        Log('ReloadDLL: FreeLibrary del hijo');
+        Log('ReloadDLL: FreeLibrary of the child');
         FreeLibrary(FDLL);
-        Log('ReloadDLL: FreeLibrary del hijo terminado');
+        Log('ReloadDLL: FreeLibrary of the child finished');
         FDLL := 0;
         FCallbackVersion := nil;
         FCallbackProc := nil;
@@ -465,8 +461,8 @@ begin
       // check for update file, if exists then rename things;
       if UpdExists and not UpdBlocked then
       begin
-        Log('ReloadDLL: aplicando actualizacion (.upd -> .run, .run -> .bak)');
-        Log('ReloadDLL: atributos antes de renombrar: .run=$%x .upd=$%x .bak=$%x (-1 = no existe; $1 = solo lectura)',
+        Log('ReloadDLL: applying update (.upd -> .run, .run -> .bak)');
+        Log('ReloadDLL: attributes before renaming: .run=$%x .upd=$%x .bak=$%x (-1 = does not exist; $1 = read-only)',
           [FileGetAttr(FRunDLLName), FileGetAttr(FUpdateDLLName), FileGetAttr(FBackupDLLName)]);
         // DeleteFile da False si no habia .bak: es normal
         Log('ReloadDLL: DeleteFile(.bak) = %s', [BoolToStr(SysUtils.DeleteFile(FBackupDLLName), True)]);
@@ -479,8 +475,8 @@ begin
         begin
           LogWinError('ReloadDLL: RenameFile(.upd -> .run)', GetLastError);
           FBlockedUpdateStamp := FileStamp(FUpdateDLLName);
-          Log('ReloadDLL: ACTUALIZACION BLOQUEADA: no se pudo renombrar el .upd. Se carga el .run actual y este .upd se ignora hasta que cambie. ' +
-            'Compruebe que la identidad del grupo de aplicaciones de IIS tiene permiso de Modificar en la carpeta.');
+          Log('ReloadDLL: UPDATE BLOCKED: the .upd could not be renamed. The current .run is loaded and this .upd is ignored until it changes. ' +
+            'Check that the IIS application pool identity has Modify permission on the folder.');
         end;
       end;
 
@@ -490,11 +486,11 @@ begin
         FDLL := LoadLibrary(PChar(FRunDLLName));
         if FDLL <> 0 then
         begin
-          Log('ReloadDLL: LoadLibrary("%s") correcto (modulo=$%x)', [FRunDLLName, FDLL]);
+          Log('ReloadDLL: LoadLibrary("%s") succeeded (module=$%x)', [FRunDLLName, FDLL]);
           FCallbackVersion := GetProcAddress(FDLL, 'GetFilterVersion');
           FCallbackProc := GetProcAddress(FDLL, 'HttpFilterProc');
           FCallbackTerminate := GetProcAddress(FDLL, 'TerminateFilter');
-          Log('ReloadDLL: exportaciones del hijo: GetFilterVersion=%s HttpFilterProc=%s TerminateFilter=%s',
+          Log('ReloadDLL: child exports: GetFilterVersion=%s HttpFilterProc=%s TerminateFilter=%s',
             [BoolToStr(Assigned(FCallbackVersion), True),
              BoolToStr(Assigned(FCallbackProc), True),
              BoolToStr(Assigned(FCallbackTerminate), True)]);
@@ -505,7 +501,7 @@ begin
           end
           else
             FFilterFlags := 0;
-          Log('ReloadDLL: flags de notificacion del hijo=$%x', [FFilterFlags]);
+          Log('ReloadDLL: child notification flags=$%x', [FFilterFlags]);
 
           // Si el hijo es una extension ISAPI se inicializa aqui, una sola vez,
           // y la informacion de version se guarda para devolverla a IIS sin
@@ -514,7 +510,7 @@ begin
           FExtProc := GetProcAddress(FDLL, 'HttpExtensionProc');
           FExtTerminate := GetProcAddress(FDLL, 'TerminateExtension');
           FExtReady := False;
-          Log('ReloadDLL: exportaciones de extension del hijo: GetExtensionVersion=%s HttpExtensionProc=%s TerminateExtension=%s',
+          Log('ReloadDLL: child extension exports: GetExtensionVersion=%s HttpExtensionProc=%s TerminateExtension=%s',
             [BoolToStr(Assigned(FExtVersion), True),
              BoolToStr(Assigned(FExtProc), True),
              BoolToStr(Assigned(FExtTerminate), True)]);
@@ -525,19 +521,19 @@ begin
             try
               FExtReady := FExtVersion(@FExtVerInfo[0]);
             except
-              LogException('ReloadDLL: GetExtensionVersion del hijo');
+              LogException('ReloadDLL: child GetExtensionVersion');
               FExtReady := False;
             end;
-            Log('ReloadDLL: GetExtensionVersion del hijo -> %s', [BoolToStr(FExtReady, True)]);
+            Log('ReloadDLL: child GetExtensionVersion -> %s', [BoolToStr(FExtReady, True)]);
           end
           else if not (Assigned(FCallbackVersion) and Assigned(FCallbackProc)) then
-            Log('ReloadDLL: AVISO: el hijo no exporta ni funciones de filtro ni de extension');
+            Log('ReloadDLL: WARNING: the child exports neither filter nor extension functions');
         end
         else
           LogWinError(Format('ReloadDLL: LoadLibrary("%s")', [FRunDLLName]), GetLastError);
       end
       else
-        Log('ReloadDLL: no existe "%s", no hay nada que cargar', [FRunDLLName]);
+        Log('ReloadDLL: "%s" does not exist, nothing to load', [FRunDLLName]);
     end;
   finally
     FDLLSync.EndWrite;
@@ -555,12 +551,12 @@ begin
     begin
       Move(FExtVerInfo[0], pVer^, SizeOf(FExtVerInfo));
       Result := True;
-      Log('GetExtensionVersion: devuelta la version del hijo');
+      Log('GetExtensionVersion: returned the version information of the child');
     end
     else
     begin
       Result := False;
-      Log('GetExtensionVersion: no hay extension hija lista, se devuelve False');
+      Log('GetExtensionVersion: no child extension ready, returning False');
     end;
   finally
     FDLLSync.EndRead;
@@ -575,7 +571,7 @@ begin
   // Se atiende ANTES de DoUpdateIfNeeded: /test no aplica actualizaciones.
   if IsTestRequest(PEXTENSION_CONTROL_BLOCK(pECB)) then
   begin
-    Log('HttpExtensionProc: peticion /test, la atiende el cargador (no aplica actualizaciones)');
+    Log('HttpExtensionProc: /test request, served by the loader (it never applies updates)');
     Result := RunTest(PEXTENSION_CONTROL_BLOCK(pECB), GetModuleName, WAIT_BEFORE_CHECK);
     Exit;
   end;
@@ -583,8 +579,8 @@ begin
   // esperar al intervalo de comprobacion. Tampoco se pasa al hijo.
   if IsUpdateRequest(PEXTENSION_CONTROL_BLOCK(pECB)) then
   begin
-    Log('HttpExtensionProc: peticion /update, la atiende el cargador');
-    Result := RunUpdate(PEXTENSION_CONTROL_BLOCK(pECB), GetModuleName, ForceUpdate);
+    Log('HttpExtensionProc: /update request, served by the loader');
+    Result := RunUpdate(PEXTENSION_CONTROL_BLOCK(pECB), ForceUpdate);
     Exit;
   end;
   DoUpdateIfNeeded;
@@ -596,14 +592,14 @@ begin
     begin
       // Se registra la entrada antes de llamar: si el hijo se cuelga, queda rastro
       T0 := GetTickCount;
-      Log('HttpExtensionProc: entrada, llamando al hijo');
+      Log('HttpExtensionProc: entering, calling the child');
       Result := FExtProc(pECB);
-      Log('HttpExtensionProc: atendida por el hijo -> resultado=%d en %d ms', [Result, GetTickCount - T0]);
+      Log('HttpExtensionProc: served by the child -> result=%d in %d ms', [Result, GetTickCount - T0]);
     end
     else
     begin
       Result := EXT_STATUS_ERROR;
-      Log('HttpExtensionProc: no hay extension hija lista, se devuelve error');
+      Log('HttpExtensionProc: no child extension ready, returning an error');
     end;
   finally
     FDLLSync.EndRead;
@@ -617,12 +613,12 @@ begin
     if Assigned(FExtTerminate) and FExtReady then
     begin
       Result := FExtTerminate(dwFlags);
-      Log('TerminateExtension del hijo -> %s', [BoolToStr(Result, True)]);
+      Log('Child TerminateExtension -> %s', [BoolToStr(Result, True)]);
     end
     else
     begin
       Result := True;
-      Log('TerminateExtension: no hay extension hija cargada');
+      Log('TerminateExtension: no child extension loaded');
     end;
   finally
     FDLLSync.EndRead;
@@ -637,12 +633,12 @@ begin
     if Assigned(FCallbackTerminate) then
     begin
       Result := FCallbackTerminate(dwFlags);
-      Log('TerminateFilter del hijo -> %s', [BoolToStr(Result, True)]);
+      Log('Child TerminateFilter -> %s', [BoolToStr(Result, True)]);
     end
     else
     begin
       Result := True;
-      Log('TerminateFilter: no hay filtro hijo cargado');
+      Log('TerminateFilter: no child filter loaded');
     end;
   finally
     FDLLSync.EndRead;

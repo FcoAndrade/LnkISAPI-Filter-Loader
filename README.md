@@ -58,7 +58,7 @@ When a `.upd` appears, the loader does the following:
 
 ### Checking that IIS does not serve the files
 
-If you use the loader as an extension, open `http://localhost/…/MyService.dll/test` **from the server itself**. The loader creates three harmless probe files (`.run`, `.upd` and `.bak`), requests them from IIS over HTTP, deletes them and answers in plain text whether IIS does not serve them (good) or downloads them (danger). It also reports whether a `.upd` is waiting. **`/test` never applies an update**: a pending `.upd` is applied by the first *normal* request once the check interval has passed (10 s in Release, 500 ms in Debug), or immediately by calling `…/MyService.dll/update` from the server itself. A [Postman collection](doc/FilterLoader.postman_collection.json) with these requests is included. Details in the [manual](doc/BUILD_AND_DEPLOY.md).
+If you use the loader as an extension, open `http://localhost/…/MyService.dll/test` **from the server itself**. The loader creates three harmless probe files (`.run`, `.upd` and `.bak`), requests them from IIS over HTTP, deletes them and answers in plain text whether IIS does not serve them (good) or downloads them (danger). It also reports whether a `.upd` is waiting. Both answer in **English by default** (Spanish with `?lang=es` or a Spanish browser). **`/test` never applies an update**: a pending `.upd` is applied by the first *normal* request once the check interval has passed (10 s in Release, 500 ms in Debug), or immediately by calling `…/MyService.dll/update` from the server itself. A [Postman collection](doc/FilterLoader.postman_collection.json) with these requests is included. Details in the [manual](doc/BUILD_AND_DEPLOY.md).
 
 ## Repository layout
 
@@ -101,10 +101,10 @@ Full instructions, including the command line and the IIS deployment: [build and
 With the Debug configuration, the loader writes a log in the `logs` folder next to the DLL, named exactly like the DLL plus `.log` (for example `logs\MyFilter.dll.log`). The folder is created if it does not exist; if it cannot be created, the log goes in the DLL folder itself. Every line has the date and time, the process and thread ids, and the message:
 
 ```
-2026-11-04 22:10:31.532 [4128:5512] ReloadDLL: ShouldReload=True (hijo cargado=False, .upd existe=True)
+2026-11-04 22:10:31.532 [4128:5512] ReloadDLL: ShouldReload=True (child loaded=False, .upd exists=True)
 ```
 
-The log records the creation and destruction of the loader, every reload decision, the result of the renames, `LoadLibrary` with its Windows error, the exports and flags of the child filter, exceptions, and every notification (whether it was forwarded to the child or not) with its result. The messages themselves are written in Spanish.
+The log records the creation and destruction of the loader, every reload decision, the result of the renames, `LoadLibrary` with its Windows error, the exports and flags of the child filter, exceptions, and every notification (whether it was forwarded to the child or not) with its result. The messages are written in English.
 
 - The IIS application pool identity needs **write permission** on the filter folder (to create `logs` and write in it). If it does not have it, the file is not created (and no error is raised).
 - The file rotates to `.log.old` when it exceeds 2 MB.

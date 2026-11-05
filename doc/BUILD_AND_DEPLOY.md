@@ -164,16 +164,16 @@ IIS loads a filter once, when the application pool starts. A filter has no URL o
 4. With the **Debug** build, open `logs\MyService.dll.log`. The latest start begins at the last `====` line. In order, you should see:
 
 ```
-==== Cargador de fecha 2026-11-04 23:35:59 ====
-Proceso ejecutandose como usuario "MyPool" ...
-ReloadDLL: ShouldReload=True (hijo cargado=False, .upd existe=True, .upd bloqueado=False)
-ReloadDLL: aplicando actualizacion (.upd -> .run, .run -> .bak)
-ReloadDLL: LoadLibrary("...MyService.run") correcto
-ReloadDLL: exportaciones de extension del hijo: GetExtensionVersion=True HttpExtensionProc=True TerminateExtension=True
-ReloadDLL: GetExtensionVersion del hijo -> True
+==== Loader DLL dated 2026-11-04 23:35:59 ====
+Process running as user "MyPool" ...
+ReloadDLL: ShouldReload=True (child loaded=False, .upd exists=True, .upd blocked=False)
+ReloadDLL: applying update (.upd -> .run, .run -> .bak)
+ReloadDLL: LoadLibrary("...MyService.run") succeeded (module=$...)
+ReloadDLL: child extension exports: GetExtensionVersion=True HttpExtensionProc=True TerminateExtension=True
+ReloadDLL: child GetExtensionVersion -> True
 ```
 
-and, for every request, `LOAD_HttpExtensionProc`, `entrada, llamando al hijo` and `atendida por el hijo -> resultado=... en ... ms`. The messages are written in Spanish.
+and, for every request, `LOAD_HttpExtensionProc`, `entering, calling the child` and `served by the child -> result=... in ... ms`. The log messages are written in English.
 
 The `====` line shows the date of the loader DLL, so you can tell which build is deployed. The user line shows the account the process runs as: that is the one that needs the permission.
 
@@ -193,9 +193,9 @@ To go back to the previous version, stop the pool, rename `MyService.bak` to `My
 
 **How the unload is made safe.** Unloading a DLL that has its own threads (DMVCFramework, for example) can deadlock Windows: `FreeLibrary` takes the Windows loader lock while the real DLL shuts down, the real DLL waits for one of its threads, and that thread, which is exiting, needs that same lock. This was seen in a dump of `w3wp.exe`. To avoid it the loader, before calling `FreeLibrary`, calls the real DLL's `TerminateExtension` and then **waits up to 3 seconds for the threads that started inside the real DLL to finish on their own** (without holding the lock, so they can). Only if some thread is still alive after that does it terminate it by force, as a last resort. The log shows `uThreads: ...` lines with how many threads were left and how long it waited.
 
-**Which identity does the work.** IIS runs `HttpExtensionProc` on threads that impersonate another user (with anonymous authentication, usually `IUSR`), whereas `GetExtensionVersion` and `TerminateExtension` run as the application pool identity. A thread impersonating `IUSR` cannot rename the files, write the log or open the child's threads, and it failed silently. That is why the log never showed any line written from a request. The loader therefore performs the check and the reload **as the process (pool) identity**: it removes the impersonation of the thread, does the work, and puts the impersonation back before returning to IIS. When it had to do so, the log says `AVISO: el hilo de la peticion suplantaba a otro usuario...` once. The pool identity is the one that needs *Modify* on the folder (section 4.2); `IUSR` does not.
+**Which identity does the work.** IIS runs `HttpExtensionProc` on threads that impersonate another user (with anonymous authentication, usually `IUSR`), whereas `GetExtensionVersion` and `TerminateExtension` run as the application pool identity. A thread impersonating `IUSR` cannot rename the files, write the log or open the child's threads, and it failed silently. That is why the log never showed any line written from a request. The loader therefore performs the check and the reload **as the process (pool) identity**: it removes the impersonation of the thread, does the work, and puts the impersonation back before returning to IIS. When it had to do so, the log says `NOTICE: the request thread was impersonating another user...` once. The pool identity is the one that needs *Modify* on the folder (section 4.2); `IUSR` does not.
 
-Status: the **shutdown** of IIS and the **live update with IIS running** were verified on the server (2026-11-05, Debug build) with a DMVCFramework real DLL that has its own threads. In that test, after `TerminateExtension` two threads of the real DLL were still alive after the 3 seconds and had to be terminated by force (`uThreads: terminando a la fuerza el hilo ...`); then `FreeLibrary` returned in about 30 ms, `.upd` became `.run`, the new version was loaded and answered the next request. The whole update took about 5 seconds, during which requests wait. If you see those `terminando a la fuerza` lines, tell the author of the real DLL: it should stop those threads in its own `TerminateExtension`, and then the 3-second wait disappears.
+Status: the **shutdown** of IIS and the **live update with IIS running** were verified on the server (2026-11-05, Debug build) with a DMVCFramework real DLL that has its own threads. In that test, after `TerminateExtension` two threads of the real DLL were still alive after the 3 seconds and had to be terminated by force (`uThreads: forcibly terminating thread ...`); then `FreeLibrary` returned in about 30 ms, `.upd` became `.run`, the new version was loaded and answered the next request. The whole update took about 5 seconds, during which requests wait. If you see those `forcibly terminating` lines, tell the author of the real DLL: it should stop those threads in its own `TerminateExtension`, and then the 3-second wait disappears.
 
 ## 8. Stopping and restarting
 
@@ -213,10 +213,10 @@ Status: the **shutdown** of IIS and the **live update with IIS running** were ve
 |---|---|---|
 | HTTP 500.0, error `0x8007007f`, handler `ISAPI-dll` | IIS uses the DLL as an extension and does not find `GetExtensionVersion`. Typical when an old loader without extension support is deployed, or the file is not the loader. | Check the DLL in the folder: use a build with extension support. |
 | HTTP 500.0, error `0x800700c1` ("not a valid Win32 application") | Bitness mismatch with the pool. | Enable *32-Bit Applications* on the pool (section 5.3). |
-| `RenameFile ... error de Windows 5 - Acceso denegado` in the log | The pool identity lacks Modify permission on the folder. | Section 4.2. Without it the loader keeps running the current `.run`, logs `ACTUALIZACION BLOQUEADA` once, and ignores that `.upd` until it changes. |
-| The site hangs ("does not respond") | Reload loop, or the real DLL is slow to start (database connection...). | Open the log: repeated `descargando el hijo actual` means a loop; check the permissions. |
+| `RenameFile ... Windows error 5` (access denied) in the log | The pool identity lacks Modify permission on the folder. | Section 4.2. Without it the loader keeps running the current `.run`, logs `UPDATE BLOCKED` once, and ignores that `.upd` until it changes. |
+| The site hangs ("does not respond") | Reload loop, or the real DLL is slow to start (database connection...). | Open the log: repeated `unloading the current child` means a loop; check the permissions. |
 | No `logs` folder or no log | You deployed a Release build, or the identity cannot write in the folder. | Deploy the Debug build and check the permission. |
-| The `.upd` is never applied | The file is still being copied (it cannot be opened exclusively), or the update is blocked. | Look for `CanAccessDLL` and `.upd bloqueado=True` in the log. |
+| The `.upd` is never applied | The file is still being copied (it cannot be opened exclusively), or the update is blocked. | Look for `CanAccessDLL` and `.upd blocked=True` in the log. |
 | `w3wp.exe` does not end when stopping | Deadlock when unloading the real DLL. | Use the current build, which does not unload it on shutdown. If it persists, make a dump. |
 | After restarting IIS nothing loads and only a `.run` exists | Fixed: an old build needed a `.upd`. | Use the current build. |
 
@@ -227,7 +227,7 @@ Status: the **shutdown** of IIS and the **live update with IIS running** were ve
 - [ ] The pool identity has **Modify** on the folder.
 - [ ] The pool has **Enable 32-Bit Applications = True**.
 - [ ] Extension: application created, *Execute* permission on the handler mapping, DLL allowed in *ISAPI and CGI Restrictions*. Filter: added in *ISAPI Filters* of the site.
-- [ ] After the first request, `.upd` has become `.run` and, with Debug, the log shows `GetExtensionVersion del hijo -> True`.
+- [ ] After the first request, `.upd` has become `.run` and, with Debug, the log shows `child GetExtensionVersion -> True`.
 - [ ] The hot update has been tried on a test server before using it in production.
 
 ## Special requests: `/test` and `/update`
@@ -240,6 +240,17 @@ When the loader is used as an extension it answers two special requests itself, 
 | `…/MyService.dll/update` | Applies the `.upd` now, if there is one | **Yes**, without waiting for the interval |
 | any other request | Is served by your real DLL | Yes, if the check interval has passed |
 
+**Language.** Both answer in **English by default**, and in Spanish when the request asks for it: from the browser's language (the `Accept-Language` header, if Spanish has priority over English) or by adding `?lang=es` (or `?lang=en`) to the URL. If the language cannot be determined, English is used. The log written by the Debug build is always in English.
+
+**Output format.** Opened in a **browser**, `/test` and `/update` answer with a styled HTML page (a coloured banner with the result — green, amber, red or blue —, a table with the state of each file, and a button to apply the update or to check the state). For **scripts and Postman** they answer in plain text. The choice is made from the request's `Accept` header (`text/html` gives the page); it can be forced by adding `?format=text` or `?format=html` to the URL. Neither format shows the path of the DLL on disk.
+
+**Reading the result from a script.** The text is translated, so a script should not parse it. Every answer carries a header with a **stable code in English, the same in every language**:
+
+| Header | Values |
+|---|---|
+| `X-FilterLoader-Result` | `/test`: `OK`, `UNSAFE`, `INCOMPLETE`. `/update`: `UPDATED`, `NONE`, `NOT_APPLIED`, `BLOCKED`, `ERROR` |
+| `X-FilterLoader-Pending` | Only `/test`: `yes` if a `.upd` is waiting, `no` if not |
+
 A [Postman collection](FilterLoader.postman_collection.json) with the three requests is included: import it in Postman (*Import*), change the `baseUrl` variable to your DLL's URL, and run Postman on the server.
 
 ### `/update`: apply the update now
@@ -248,29 +259,37 @@ A [Postman collection](FilterLoader.postman_collection.json) with the three requ
 http://localhost/WebService/MyService.dll/update
 ```
 
-It answers in plain text with a line `RESULTADO: ...` and an HTTP status that a deployment script can use:
+It answers with a line `RESULT: ...` (`RESULTADO: ...` in Spanish) and an HTTP status that a deployment script can use:
 
-| Result | HTTP | Meaning |
-|---|---|---|
-| `ACTUALIZADO` | 200 | The `.upd` was applied; the new version is loaded (it says how many ms it took). |
-| `SIN ACTUALIZACION` | 200 | There is no `.upd`; nothing to do. |
-| `NO APLICADA` | 409 | The `.upd` is still there: it is still being copied or is open in another program. Call `/update` again later. |
-| `BLOQUEADA` | 409 | It could not be renamed, usually missing *Modify* permission for the pool identity on the folder (section 4.2). The current version keeps running. |
+| `X-FilterLoader-Result` | HTTP | Text (EN / ES) | Meaning |
+|---|---|---|---|
+| `UPDATED` | 200 | `UPDATED` / `ACTUALIZADO` | The `.upd` was applied; the new version is loaded (it says how many ms it took). |
+| `NONE` | 200 | `NO UPDATE` / `SIN ACTUALIZACION` | There is no `.upd`; nothing to do. |
+| `NOT_APPLIED` | 409 | `NOT APPLIED` / `NO APLICADA` | The `.upd` is still there: it is still being copied or is open in another program. Call `/update` again later. |
+| `BLOCKED` | 409 | `BLOCKED` / `BLOQUEADA` | It could not be renamed, usually missing *Modify* permission for the pool identity on the folder (section 4.2). The current version keeps running. |
+| `ERROR` | 409 | `ERROR` | Unexpected failure; see the log (Debug build). |
 
-A typical deployment is therefore: copy the new `MyService.upd`, then call `/update` and check for `ACTUALIZADO`.
+A typical deployment is therefore: copy the new `MyService.upd`, then call `/update` and check for `X-FilterLoader-Result: UPDATED` (or HTTP 200).
 
 ### `/test`: self-check and pending update
 
-Besides the file check described below, `/test` adds a line saying whether there is a pending update:
+Besides the file check described below, `/test` adds a line saying whether there is a pending update. In English:
 
 ```
-Actualizacion pendiente: SI - existe MyService.upd (9341952 bytes, 2026-11-05 09:00:12).
-  /test NO aplica actualizaciones. Un .upd solo se aplica en la primera peticion normal
-  (que no sea /test ni /update) pasado el intervalo de comprobacion (10000 ms desde la anterior),
-  o llamando a /update.
+Pending update: YES - MyService.upd exists (9341952 bytes, 2026-11-05 09:00:12).
+  To apply it now, call /update.
+  This /test request only reports, it does not apply it. If you do not call /update, it will be applied by the first
+  normal request (not /test or /update) once the check interval has passed (10000 ms).
 ```
 
-or `Actualizacion pendiente: no (no existe MyService.upd).` The messages are written in Spanish.
+or, when there is nothing waiting:
+
+```
+Pending update: no (MyService.upd does not exist).
+  When there is a .upd, call /update to apply it.
+```
+
+(In Spanish: `Actualizacion pendiente: SI - existe ...` / `Actualizacion pendiente: no (no existe ...)`.) The short version: **to apply an update, call `/update`**; `/test` only reports.
 
 ## Checking that IIS does not serve the `.run`, `.upd` and `.bak` files
 

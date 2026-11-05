@@ -43,7 +43,7 @@ var
 function LOAD_GetFilterVersion(var pVer: HTTP_FILTER_VERSION): BOOL; export; stdcall;
 begin
   try
-    Log('--- LOAD_GetFilterVersion (IIS carga el filtro) ---');
+    Log('--- LOAD_GetFilterVersion (IIS loads the filter) ---');
     if gFilterLoader = nil then
       gFilterLoader := CoCreateFilterLoader;
     Result := gFilterLoader.GetFilterVersion(pVer);
@@ -84,7 +84,7 @@ end;
 function LOAD_GetExtensionVersion(pVer: Pointer): BOOL; export; stdcall;
 begin
   try
-    Log('--- LOAD_GetExtensionVersion (IIS carga la extension) ---');
+    Log('--- LOAD_GetExtensionVersion (IIS loads the extension) ---');
     // No se recrea el cargador si ya existe (filtro y extension pueden convivir)
     if gFilterLoader = nil then
       gFilterLoader := CoCreateFilterLoader;
@@ -98,7 +98,7 @@ end;
 function LOAD_HttpExtensionProc(pECB: Pointer): DWORD; export; stdcall;
 begin
   try
-    Log('--- LOAD_HttpExtensionProc (IIS manda una peticion) ---');
+    Log('--- LOAD_HttpExtensionProc (IIS sends a request) ---');
     Result := gFilterLoader.HttpExtensionProc(pECB);
   except
     LogException('LOAD_HttpExtensionProc');

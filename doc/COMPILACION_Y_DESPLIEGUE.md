@@ -164,16 +164,16 @@ IIS carga un filtro una sola vez, al arrancar el grupo de aplicaciones. Un filtr
 4. Con la compilación **Debug**, abre `logs\MiServicio.dll.log`. El último arranque empieza en la última línea `====`. En orden, deberías ver:
 
 ```
-==== Cargador de fecha 2026-11-04 23:35:59 ====
-Proceso ejecutandose como usuario "MiGrupo" ...
-ReloadDLL: ShouldReload=True (hijo cargado=False, .upd existe=True, .upd bloqueado=False)
-ReloadDLL: aplicando actualizacion (.upd -> .run, .run -> .bak)
-ReloadDLL: LoadLibrary("...MiServicio.run") correcto
-ReloadDLL: exportaciones de extension del hijo: GetExtensionVersion=True HttpExtensionProc=True TerminateExtension=True
-ReloadDLL: GetExtensionVersion del hijo -> True
+==== Loader DLL dated 2026-11-04 23:35:59 ====
+Process running as user "MiGrupo" ...
+ReloadDLL: ShouldReload=True (child loaded=False, .upd exists=True, .upd blocked=False)
+ReloadDLL: applying update (.upd -> .run, .run -> .bak)
+ReloadDLL: LoadLibrary("...MiServicio.run") succeeded (module=$...)
+ReloadDLL: child extension exports: GetExtensionVersion=True HttpExtensionProc=True TerminateExtension=True
+ReloadDLL: child GetExtensionVersion -> True
 ```
 
-y, por cada petición, `LOAD_HttpExtensionProc`, `entrada, llamando al hijo` y `atendida por el hijo -> resultado=... en ... ms`.
+y, por cada petición, `LOAD_HttpExtensionProc`, `entering, calling the child` y `served by the child -> result=... in ... ms`. Los mensajes del log están escritos en inglés.
 
 La línea `====` indica la fecha de la DLL del cargador, así que sirve para saber qué compilación está desplegada. La línea del usuario indica la cuenta con la que corre el proceso: es la que necesita el permiso.
 
@@ -193,9 +193,9 @@ Para volver a la versión anterior, para el grupo, renombra `MiServicio.bak` a `
 
 **Cómo se hace segura la descarga.** Descargar una DLL que tiene hilos propios (DMVCFramework, por ejemplo) puede provocar un interbloqueo de Windows: `FreeLibrary` toma el bloqueo del cargador de Windows mientras la DLL real se cierra, la DLL real espera a uno de sus hilos, y ese hilo, que está saliendo, necesita ese mismo bloqueo. Se vio en un volcado de `w3wp.exe`. Para evitarlo, el cargador, antes de llamar a `FreeLibrary`, llama al `TerminateExtension` de la DLL real y luego **espera hasta 3 segundos a que terminen solos los hilos que arrancaron dentro de la DLL real** (sin tener el bloqueo tomado, así que pueden salir). Solo si queda algún hilo vivo pasado ese tiempo lo termina a la fuerza, como último recurso. El log muestra líneas `uThreads: ...` con cuántos hilos quedaban y cuánto esperó.
 
-**Qué identidad hace el trabajo.** IIS ejecuta `HttpExtensionProc` en hilos que suplantan a otro usuario (con autenticación anónima, normalmente `IUSR`), mientras que `GetExtensionVersion` y `TerminateExtension` corren con la identidad del grupo de aplicaciones. Un hilo que suplanta a `IUSR` no puede renombrar los ficheros, escribir el log ni abrir los hilos del hijo, y fallaba en silencio. Por eso el log nunca mostraba ninguna línea escrita desde una petición. El cargador hace por tanto la comprobación y la recarga **con la identidad del proceso (la del grupo)**: quita la suplantación del hilo, hace el trabajo y la vuelve a poner antes de devolver el control a IIS. Cuando tuvo que hacerlo, el log lo dice una vez con `AVISO: el hilo de la peticion suplantaba a otro usuario...`. La identidad del grupo es la que necesita *Modificar* sobre la carpeta (apartado 4.2); `IUSR` no.
+**Qué identidad hace el trabajo.** IIS ejecuta `HttpExtensionProc` en hilos que suplantan a otro usuario (con autenticación anónima, normalmente `IUSR`), mientras que `GetExtensionVersion` y `TerminateExtension` corren con la identidad del grupo de aplicaciones. Un hilo que suplanta a `IUSR` no puede renombrar los ficheros, escribir el log ni abrir los hilos del hijo, y fallaba en silencio. Por eso el log nunca mostraba ninguna línea escrita desde una petición. El cargador hace por tanto la comprobación y la recarga **con la identidad del proceso (la del grupo)**: quita la suplantación del hilo, hace el trabajo y la vuelve a poner antes de devolver el control a IIS. Cuando tuvo que hacerlo, el log lo dice una vez con `NOTICE: the request thread was impersonating another user...`. La identidad del grupo es la que necesita *Modificar* sobre la carpeta (apartado 4.2); `IUSR` no.
 
-Estado: la **parada** de IIS y la **actualización en caliente con IIS en marcha** están comprobadas en el servidor (2026-11-05, compilación Debug) con una DLL real de DMVCFramework que tiene hilos propios. En esa prueba, tras el `TerminateExtension` quedaban dos hilos de la DLL real vivos pasados los 3 segundos y hubo que terminarlos a la fuerza (`uThreads: terminando a la fuerza el hilo ...`); después `FreeLibrary` volvió en unos 30 ms, el `.upd` pasó a `.run`, se cargó la versión nueva y atendió la petición siguiente. La actualización completa tardó unos 5 segundos, durante los cuales las peticiones esperan. Si ves esas líneas `terminando a la fuerza`, avisa a quien mantenga la DLL real: debería parar esos hilos en su propio `TerminateExtension`, y entonces desaparece la espera de 3 segundos.
+Estado: la **parada** de IIS y la **actualización en caliente con IIS en marcha** están comprobadas en el servidor (2026-11-05, compilación Debug) con una DLL real de DMVCFramework que tiene hilos propios. En esa prueba, tras el `TerminateExtension` quedaban dos hilos de la DLL real vivos pasados los 3 segundos y hubo que terminarlos a la fuerza (`uThreads: forcibly terminating thread ...`); después `FreeLibrary` volvió en unos 30 ms, el `.upd` pasó a `.run`, se cargó la versión nueva y atendió la petición siguiente. La actualización completa tardó unos 5 segundos, durante los cuales las peticiones esperan. Si ves esas líneas `forcibly terminating`, avisa a quien mantenga la DLL real: debería parar esos hilos en su propio `TerminateExtension`, y entonces desaparece la espera de 3 segundos.
 
 ## 8. Parar y reiniciar
 
@@ -213,10 +213,10 @@ Estado: la **parada** de IIS y la **actualización en caliente con IIS en marcha
 |---|---|---|
 | HTTP 500.0, error `0x8007007f`, controlador `ISAPI-dll` | IIS usa la DLL como extensión y no encuentra `GetExtensionVersion`. Típico al desplegar un cargador antiguo sin soporte de extensiones, o un fichero que no es el cargador. | Revisa la DLL de la carpeta: usa una compilación con soporte de extensiones. |
 | HTTP 500.0, error `0x800700c1` («no es una aplicación Win32 válida») | Los bits no coinciden con el grupo. | Habilita *aplicaciones de 32 bits* en el grupo (apartado 5.3). |
-| `RenameFile ... error de Windows 5 - Acceso denegado` en el log | La identidad del grupo no tiene permiso de Modificar en la carpeta. | Apartado 4.2. Sin él, el cargador sigue con el `.run` actual, anota `ACTUALIZACION BLOQUEADA` una vez e ignora ese `.upd` hasta que cambie. |
-| El sitio se queda colgado («no responde») | Bucle de recarga, o la DLL real tarda en arrancar (conexión a la base de datos...). | Abre el log: `descargando el hijo actual` repetido indica un bucle; revisa los permisos. |
+| `RenameFile ... Windows error 5` (acceso denegado) en el log | La identidad del grupo no tiene permiso de Modificar en la carpeta. | Apartado 4.2. Sin él, el cargador sigue con el `.run` actual, anota `UPDATE BLOCKED` una vez e ignora ese `.upd` hasta que cambie. |
+| El sitio se queda colgado («no responde») | Bucle de recarga, o la DLL real tarda en arrancar (conexión a la base de datos...). | Abre el log: `unloading the current child` repetido indica un bucle; revisa los permisos. |
 | No hay carpeta `logs` ni log | Has desplegado una compilación Release, o la identidad no puede escribir en la carpeta. | Despliega la compilación Debug y revisa el permiso. |
-| El `.upd` nunca se aplica | El fichero aún se está copiando (no se puede abrir en exclusiva), o la actualización está bloqueada. | Busca `CanAccessDLL` y `.upd bloqueado=True` en el log. |
+| El `.upd` nunca se aplica | El fichero aún se está copiando (no se puede abrir en exclusiva), o la actualización está bloqueada. | Busca `CanAccessDLL` y `.upd blocked=True` en el log. |
 | `w3wp.exe` no termina al parar | Interbloqueo al descargar la DLL real. | Usa la compilación actual, que no la descarga al apagar. Si persiste, haz un volcado. |
 | Tras reiniciar IIS no carga nada y solo existe un `.run` | Corregido: una compilación antigua exigía un `.upd`. | Usa la compilación actual. |
 
@@ -227,7 +227,7 @@ Estado: la **parada** de IIS y la **actualización en caliente con IIS en marcha
 - [ ] La identidad del grupo tiene **Modificar** sobre la carpeta.
 - [ ] El grupo tiene **Habilitar aplicaciones de 32 bits = True**.
 - [ ] Extensión: aplicación creada, permiso *Ejecutar* en la asignación de controlador y DLL permitida en *Restricciones ISAPI y CGI*. Filtro: agregado en *Filtros ISAPI* del sitio.
-- [ ] Tras la primera petición, el `.upd` se ha convertido en `.run` y, con Debug, el log muestra `GetExtensionVersion del hijo -> True`.
+- [ ] Tras la primera petición, el `.upd` se ha convertido en `.run` y, con Debug, el log muestra `child GetExtensionVersion -> True`.
 - [ ] La actualización en caliente se ha probado en un servidor de pruebas antes de usarla en producción.
 
 ## Peticiones especiales: `/test` y `/update`
@@ -240,6 +240,17 @@ Cuando el cargador se usa como extensión, atiende él mismo dos peticiones espe
 | `…/MiServicio.dll/update` | Aplica el `.upd` ahora, si lo hay | **Sí**, sin esperar al intervalo |
 | cualquier otra petición | La atiende tu DLL real | Sí, si ha pasado el intervalo de comprobación |
 
+**Idioma.** Las dos responden en **inglés por defecto**, y en castellano cuando la petición lo pide: según el idioma del navegador (la cabecera `Accept-Language`, si el castellano tiene prioridad sobre el inglés) o añadiendo `?lang=es` (o `?lang=en`) a la URL. Si no se puede saber el idioma, se usa el inglés. El log que escribe la compilación Debug está siempre en inglés.
+
+**Formato de la salida.** Abiertos en un **navegador**, `/test` y `/update` responden con una página HTML con estilo (un banner de color con el resultado —verde, ámbar, rojo o azul—, una tabla con el estado de cada fichero y un botón para aplicar la actualización o para comprobar el estado). Para **scripts y Postman** responden en texto plano. El formato se elige según la cabecera `Accept` de la petición (`text/html` da la página); se puede forzar añadiendo `?format=text` o `?format=html` a la URL. Ninguno de los dos formatos muestra la ruta de la DLL en el disco.
+
+**Leer el resultado desde un script.** El texto está traducido, así que un script no debería analizarlo. Cada respuesta lleva una cabecera con un **código estable en inglés, igual en todos los idiomas**:
+
+| Cabecera | Valores |
+|---|---|
+| `X-FilterLoader-Result` | `/test`: `OK`, `UNSAFE`, `INCOMPLETE`. `/update`: `UPDATED`, `NONE`, `NOT_APPLIED`, `BLOCKED`, `ERROR` |
+| `X-FilterLoader-Pending` | Solo `/test`: `yes` si hay un `.upd` esperando, `no` si no |
+
 Se incluye una [colección de Postman](FilterLoader.postman_collection.json) con las tres peticiones: impórtala en Postman (*Import*), cambia la variable `baseUrl` por la URL de tu DLL y ejecuta Postman en el servidor.
 
 ### `/update`: aplicar la actualización ahora
@@ -248,29 +259,37 @@ Se incluye una [colección de Postman](FilterLoader.postman_collection.json) con
 http://localhost/WebService/MiServicio.dll/update
 ```
 
-Responde en texto plano con una línea `RESULTADO: ...` y un estado HTTP que puede aprovechar un script de despliegue:
+Responde con una línea `RESULTADO: ...` (`RESULT: ...` en inglés) y un estado HTTP que puede aprovechar un script de despliegue:
 
-| Resultado | HTTP | Significado |
-|---|---|---|
-| `ACTUALIZADO` | 200 | Se aplicó el `.upd`; la versión nueva está cargada (indica cuántos ms tardó). |
-| `SIN ACTUALIZACION` | 200 | No hay `.upd`; no hay nada que hacer. |
-| `NO APLICADA` | 409 | El `.upd` sigue ahí: aún se está copiando o está abierto en otro programa. Vuelve a llamar a `/update` más tarde. |
-| `BLOQUEADA` | 409 | No se pudo renombrar, normalmente por falta de permiso de *Modificar* de la identidad del grupo sobre la carpeta (apartado 4.2). Se sigue con la versión actual. |
+| `X-FilterLoader-Result` | HTTP | Texto (EN / ES) | Significado |
+|---|---|---|---|
+| `UPDATED` | 200 | `UPDATED` / `ACTUALIZADO` | Se aplicó el `.upd`; la versión nueva está cargada (indica cuántos ms tardó). |
+| `NONE` | 200 | `NO UPDATE` / `SIN ACTUALIZACION` | No hay `.upd`; no hay nada que hacer. |
+| `NOT_APPLIED` | 409 | `NOT APPLIED` / `NO APLICADA` | El `.upd` sigue ahí: aún se está copiando o está abierto en otro programa. Vuelve a llamar a `/update` más tarde. |
+| `BLOCKED` | 409 | `BLOCKED` / `BLOQUEADA` | No se pudo renombrar, normalmente por falta de permiso de *Modificar* de la identidad del grupo sobre la carpeta (apartado 4.2). Se sigue con la versión actual. |
+| `ERROR` | 409 | `ERROR` | Fallo inesperado; ver el log (compilación Debug). |
 
-Un despliegue típico es, por tanto: copiar el nuevo `MiServicio.upd`, llamar a `/update` y comprobar que responde `ACTUALIZADO`.
+Un despliegue típico es, por tanto: copiar el nuevo `MiServicio.upd`, llamar a `/update` y comprobar `X-FilterLoader-Result: UPDATED` (o HTTP 200).
 
 ### `/test`: autocomprobación y actualización pendiente
 
-Además de la comprobación de ficheros que se describe abajo, `/test` añade una línea que dice si hay una actualización pendiente:
+Además de la comprobación de ficheros que se describe abajo, `/test` añade una línea que dice si hay una actualización pendiente. En castellano:
 
 ```
 Actualizacion pendiente: SI - existe MiServicio.upd (9341952 bytes, 2026-11-05 09:00:12).
-  /test NO aplica actualizaciones. Un .upd solo se aplica en la primera peticion normal
-  (que no sea /test ni /update) pasado el intervalo de comprobacion (10000 ms desde la anterior),
-  o llamando a /update.
+  Para aplicarla ahora, llama a /update.
+  Esta peticion /test solo informa, no la aplica. Si no llamas a /update, se aplicara en la
+  primera peticion normal (que no sea /test ni /update) pasado el intervalo de comprobacion (10000 ms).
 ```
 
-o `Actualizacion pendiente: no (no existe MiServicio.upd).`
+o, cuando no hay nada esperando:
+
+```
+Actualizacion pendiente: no (no existe MiServicio.upd).
+  Cuando haya un .upd, llama a /update para aplicarlo.
+```
+
+(En inglés: `Pending update: YES - ... exists` / `Pending update: no (... does not exist)`.) En resumen: **para aplicar una actualización, llama a `/update`**; `/test` solo informa.
 
 ## Comprobar que IIS no sirve los ficheros `.run`, `.upd` y `.bak`
 
